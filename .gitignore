@@ -1,0 +1,13 @@
+# never commit secrets or certificates
+*.pem
+*.key
+.env
+.env.*
+
+# editor / OS junk
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
