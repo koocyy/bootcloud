@@ -4,6 +4,12 @@
 .env
 .env.*
 
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
 # editor / OS junk
 .DS_Store
 Thumbs.db

@@ -1,0 +1,25 @@
+# Reference copy of /etc/systemd/system/bootcloud-redirect.service on the server.
+# Listens on port 80 and redirects everything to https://bootcloud.eu.
+[Unit]
+Description=BootCloud HTTP to HTTPS redirect (port 80)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/bootcloud/deploy
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/srv/bootcloud-venv/bin/uvicorn http_redirect:app --host 0.0.0.0 --port 80 \
+    --lifespan off --no-access-log
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

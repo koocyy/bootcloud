@@ -1,38 +1,80 @@
 # bootcloud
 
-Source for **https://bootcloud.eu**, served by nginx from our server.
+Source for **https://bootcloud.eu**, a FastAPI app served by uvicorn on our
+server (`jarvis`). There is no nginx or other web server in front of it.
 
 ## Layout
 
 ```
-site/                  the website; nginx serves this folder as-is
-  index.html
-nginx/
-  bootcloud.conf       copy of the live nginx site config (reference)
+site/                          the app
+  main.py                      FastAPI app (uvicorn runs main:app)
+  index.html                   page served at /
+deploy/                        how the server runs it
+  bootcloud.service            systemd unit: the app, HTTPS on port 443
+  bootcloud-redirect.service   systemd unit: port 80 -> https redirect
+  http_redirect.py             the tiny redirect app
+requirements.txt               Python packages the server runs
 ```
 
-## Where it lives on the server
+## Run it locally
 
-The repo is cloned to **`/srv/bootcloud`** on the server, and every team member
-has a shortcut to it at **`~/bootcloud`**.
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt     # Windows: .venv\Scripts\pip
+cd site
+../.venv/bin/uvicorn main:app --reload        # http://127.0.0.1:8000
+```
 
-nginx serves `/srv/bootcloud/site` directly, so a change there is live on the
-next page load. No build step and no restart needed for HTML/CSS/JS/images.
+Run uvicorn from inside `site/`: `main.py` opens `index.html` by relative path.
 
-## Workflow
+## How it runs on the server
 
-On the server:
+| What | Where |
+|---|---|
+| This repo | `/srv/bootcloud` (shortcut: `~/bootcloud`) |
+| Python virtualenv | `/srv/bootcloud-venv` |
+| App service | `bootcloud.service`, uvicorn on port 443 with the TLS certificate |
+| Redirect service | `bootcloud-redirect.service`, port 80, sends everything to `https://bootcloud.eu` |
+| Certificate | Let's Encrypt, in `/etc/letsencrypt/live/bootcloud.eu/` |
+
+Both services run as the unprivileged `www-data` user, start on boot and
+restart themselves if they crash.
+
+## Deploying a change
 
 ```bash
 cd ~/bootcloud
-git pull                  # get the latest from GitHub
-# edit files in site/ - changes are live immediately
-git add -A && git commit -m "describe the change"
-git push                  # needs your own GitHub login on the server (see below)
+git pull
+sudo systemctl restart bootcloud     # only needed when Python code changed
 ```
 
-Or edit on your own computer, push to GitHub, then on the server run
-`cd ~/bootcloud && git pull` to put it live.
+- `index.html` is read from disk on every request, so it is live right after `git pull`.
+- Changes to `main.py` (or any Python) need the restart.
+- New Python package: add it to `requirements.txt`, then on the server run
+  `/srv/bootcloud-venv/bin/pip install -r requirements.txt` and restart.
+
+Useful commands:
+
+```bash
+systemctl status bootcloud            # is it running?
+sudo journalctl -u bootcloud -f       # live log, including Python errors
+sudo systemctl restart bootcloud
+```
+
+## Things to know
+
+- **Only routes defined in `main.py` exist.** Any other path is a 404, including
+  CSS/JS/image files, until a route or a `StaticFiles` mount is added for them.
+- **API docs are off.** `/docs`, `/redoc` and `/openapi.json` are disabled in
+  `main.py` so they aren't public. Remove the three arguments to `FastAPI()`
+  when you want them locally.
+- **The files in `deploy/` are reference copies.** The live units are in
+  `/etc/systemd/system/`. After changing one, an admin copies it there and runs
+  `sudo systemctl daemon-reload && sudo systemctl restart bootcloud`.
+- **Certificate renewal is automatic** (`certbot.timer`). To renew, certbot
+  briefly stops the redirect service to use port 80 itself, then restarts the
+  app so it loads the new certificate. Port 80 must stay forwarded on the router.
+- **This repo is public.** Never commit passwords, keys or `.env` files.
 
 ### Pushing from the server
 
@@ -43,16 +85,3 @@ e.g. an SSH key added to their GitHub account, then:
 ```bash
 git remote set-url origin git@github.com:koocyy/bootcloud.git
 ```
-
-## nginx config
-
-`nginx/bootcloud.conf` mirrors `/etc/nginx/sites-available/bootcloud`.
-The live file is the one nginx uses; if you change one, update the other.
-
-```bash
-sudo nginx -t && sudo systemctl reload nginx   # check, then apply
-```
-
-HTTPS certificates come from Let's Encrypt via certbot and renew automatically
-(`certbot.timer`). The `# managed by Certbot` lines are written by certbot.
-Don't remove them.
