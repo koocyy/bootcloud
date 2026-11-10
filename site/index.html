@@ -1,26 +1,59 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>jarvis is alive</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { margin:0; min-height:100vh; display:grid; place-items:center;
-         font-family: system-ui, sans-serif; background:#0f1115; color:#e8e8e8; }
-  .card { text-align:center; padding:2rem 2.5rem; border:1px solid #2a2f3a; border-radius:14px; background:#161a22; }
-  h1 { margin:0 0 .5rem; font-size:2rem; }
-  .dot { display:inline-block; width:.7rem; height:.7rem; border-radius:50%; background:#3ddc84; margin-right:.5rem; box-shadow:0 0 10px #3ddc84; }
-  p { color:#9aa3b2; margin:.3rem 0; }
-  code { color:#e8e8e8; }
-</style>
-</head>
-<body>
-  <div class="card">
-    <h1><span class="dot"></span>It works</h1>
-    <p>Served by <code>nginx</code> on <code>jarvis</code></p>
-    <p id="t"></p>
-  </div>
-  <script>document.getElementById('t').textContent = 'Loaded ' + new Date().toLocaleString();</script>
-</body>
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://fonts.googleapis.com/css2?family=Audiowide&display=swap" rel="stylesheet">
+    <title>(>^_^)> BootCloud <('.'<)</title>
+    <style>
+      :root { color-scheme: light dark; }
+      .full {
+        width:100%;
+        height:100%;
+        display:flex;
+        flex-direction:column;
+        background-color:#31363F;
+      }
+      .top {
+        width:100%;
+        height:200px;
+        display:flex;
+        flex-direction:row;
+        background-color:#31363F;
+      }
+      .categories {
+        margin-top:50px;
+        margin-left:100px;
+        width:60%;
+        height:150px;
+        display:flex;
+        flex-direction:row;
+      }
+      .button {
+        width:10%;
+        height:40px;
+      }
+      #search {
+        width:20%;
+        height:40px;
+        display:flex;
+        flex-direction:row;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box" id="full">
+      <div class="box" id="top">
+        <div class="box" id="categories">
+          <button class="button" type="radio">Category #1</button>
+          <button class="button" type="radio">Category #2</button>
+          <button class="button" type="radio">Category #3</button>
+        </div>
+        <div class="box" id="search">
+          <input type="text">
+          <h1 style="font-family: Verdana; font-style: italic;">BootCloud</h1>
+        </div>
+      </div>
+    </div>
+  </body>
 </html>
