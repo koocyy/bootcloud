@@ -1,59 +1,313 @@
 <!DOCTYPE html>
-<html lang="cs">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link href="https://fonts.googleapis.com/css2?family=Audiowide&display=swap" rel="stylesheet">
-    <title>(>^_^)> BootCloud <('.'<)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;600&family=Pixelify+Sans:wght@400..700&display=swap" rel="stylesheet">
+    <title>BootCloud</title>
     <style>
-      :root { color-scheme: light dark; }
-      #full {
-        width:100%;
-        height:100%;
-        display:flex;
-        flex-direction:column;
-        background-color:#31363F;
+      :root {
+        color-scheme: dark;
+        --pixel: "Pixelify Sans", monospace;
+        --code: "JetBrains Mono", ui-monospace, monospace;
+        --body: "Archivo", sans-serif;
+        --blue: #2F2FE4;
+        --cyan: #162E93;
+        --ink: #080616;
+        --panel: #1A1953;
+        --line: #162E93;
+        --muted: #a7a9d8;
+        --ascii-dark: #021526;
+        --ascii-blue: #03346E;
+        --ascii-light: #6EACDA;
+        --ascii-paper: #E2E2B6;
+        --bw: 3px;
+        --shadow: 4px 4px 0 0 var(--line);
+        --shadow-lg: 6px 6px 0 0 var(--line);
+        --dots: radial-gradient(var(--ink) 1.2px, transparent 1.7px);
+        --press: 90ms steps(2, end);
       }
-      #top {
-        width:100%;
-        height:200px;
-        display:flex;
-        flex-direction:row;
-        background-color:#31363F;
+
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+      body { margin: 0; min-width: 320px; padding-bottom: 54px; overflow: hidden; background: var(--ink); color: #eef7ff; font-family: var(--body); line-height: 1.45; }
+      body.games-unlocked { overflow: auto; }
+      .ascii-tile-background { position: absolute; top: 0; left: 0; z-index: 0; width: 100%; min-height: 100%; overflow: hidden; background: var(--ascii-dark); opacity: .48; pointer-events: none; }
+      .ascii-tile { width: 100%; min-width: 0; margin: 0; padding: 8px; color: var(--ascii-light); font: 700 .72rem / 1.15 var(--code); letter-spacing: .04em; white-space: pre; }
+      .shell { width: min(920px, calc(100% - 32px)); margin: 0 auto; }
+
+      header { position: sticky; top: 0; z-index: 2; border-bottom: 2px solid var(--line); background: var(--ink); }
+      header .shell { width: 100%; max-width: none; padding-inline: 24px; }
+      .nav { width: 100%; min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+      .brand { display: flex; align-items: center; gap: 12px; color: #fff; text-decoration: none; }
+      .brand img { width: 64px; height: 46px; object-fit: contain; filter: drop-shadow(0 0 12px rgba(47,47,228,.6)); }
+      .brand strong { font: 500 .85rem var(--code); letter-spacing: .2px; }
+      .account { color: var(--muted); font: 600 .68rem var(--code); letter-spacing: .06em; text-transform: uppercase; }
+
+      main { position: relative; z-index: 1; padding: 0 0 48px; }
+      .landing { min-height: calc(100dvh - 118px); display: flex; flex-direction: column; justify-content: center; gap: 28px; }
+      .intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 2px solid var(--line); }
+      h1, h2, p { margin: 0; }
+      h1 { display: inline-block; padding: 10px 14px; border: 2px solid var(--line); background: var(--ink); font: 800 clamp(2rem, 4vw, 3rem) / .95 var(--body); letter-spacing: .01em; text-transform: uppercase; }
+      .intro p { max-width: 300px; padding: 10px 12px; border: 2px solid var(--line); background: var(--panel); color: var(--muted); font-size: .75rem; line-height: 1.6; }
+      .intro p, .chat-note, .section-head, .game-info { box-shadow: none; }
+
+      .doors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 760px; width: 100%; margin: 0 auto; padding: 0; list-style: none; }
+      .doors > li { min-width: 0; }
+      .door { display: flex; justify-content: space-between; align-items: center; gap: 14px; height: 100%; min-height: 190px; padding: 22px; border: var(--bw) solid var(--line); background-color: var(--blue); background-image: var(--dots); background-size: 8px 8px; color: #fff; font: inherit; text-decoration: none; text-transform: uppercase; box-shadow: var(--shadow); cursor: pointer; transition: transform var(--press), box-shadow var(--press); }
+      .door:hover, .door:focus-visible { color: #fff; box-shadow: var(--shadow-lg); transform: translate(-2px, -2px); }
+      .door:active { box-shadow: 0 0 0 0 var(--line); transform: translate(4px, 4px); }
+      .door-text { display: grid; gap: 5px; min-width: 0; text-align: left; }
+      .door-name { font: 800 clamp(1.7rem, 5vw, 3rem) / 1 var(--body); letter-spacing: .04em; }
+      .door-label { color: #eef7ff; font: 600 .68rem var(--code); letter-spacing: .05em; }
+      .door-count { color: #eef7ff; font: 700 2.2rem / 1 var(--code); }
+      .chat-note { max-width: 760px; margin: -12px auto 0; padding: 9px 12px; border: 2px solid var(--line); background: var(--panel); color: var(--muted); font: .7rem var(--code); }
+
+      .browser { padding-top: 38px; }
+      .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+      .filters { display: flex; flex-wrap: wrap; gap: 8px; }
+      button, input { font: inherit; }
+      .filter { border: 2px solid var(--line); padding: 8px 12px; color: var(--muted); background: var(--ascii-dark); box-shadow: 3px 3px 0 var(--line); font: 600 .68rem var(--code); letter-spacing: .04em; text-transform: uppercase; cursor: pointer; }
+      .filter:hover:not(.active):not([aria-pressed="true"]) { color: #fff; background: var(--cyan); }
+      .filter.active, .filter[aria-pressed="true"] { border-color: var(--ascii-paper); color: var(--ink); background: var(--ascii-paper); }
+      .filter:active { box-shadow: 0 0 0 var(--line); transform: translate(3px, 3px); }
+      .search { display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 2px dashed var(--ascii-light); color: var(--ascii-light); background: var(--ascii-dark); }
+      .search:focus-within { border-style: solid; border-color: var(--blue); }
+      .search.is-typing { animation: typing-pulse .28s ease-out; }
+      .search input { width: 190px; border: 0; outline: 0; padding: 9px 0; color: #fff; background: transparent; }
+
+      .section-head { display: flex; align-items: center; justify-content: space-between; margin: 30px 0 14px; padding: 10px 12px; border: 2px solid var(--line); background: var(--panel); }
+      h2 { font: 700 1rem var(--body); letter-spacing: .04em; text-transform: uppercase; }
+      .online { color: var(--muted); font-size: .68rem; }
+      .games { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+      .game[hidden] { display: none; }
+      .game { display: block; min-width: 0; overflow: hidden; border: 2px solid var(--line); color: #eef7ff; text-decoration: none; background: var(--blue); box-shadow: var(--shadow); transition: opacity .22s ease, transform .22s ease, box-shadow .22s ease; }
+      .game.is-filtered { opacity: 0; transform: scale(.9); pointer-events: none; }
+      .game:hover { border-color: var(--blue); box-shadow: var(--shadow-lg); transform: translate(-2px, -2px); }
+      .game-cover { aspect-ratio: 1.8; display: grid; place-items: center; background: var(--blue); }
+      .game-cover img { width: 70%; height: auto; object-fit: contain; opacity: .9; }
+      .game-info { padding: 15px; border-top: 2px solid var(--line); background: var(--panel); }
+      .game-title { font: 700 1rem var(--body); letter-spacing: .03em; text-transform: uppercase; }
+      .game-meta { display: flex; justify-content: space-between; margin-top: 8px; color: var(--muted); font-size: .65rem; }
+      .status { color: #fff; }
+      footer { position: fixed; right: 0; bottom: 0; left: 0; z-index: 2; padding: 14px 0; border-top: 2px solid var(--line); color: var(--muted); background: var(--ink); font: 600 .68rem var(--code); letter-spacing: .04em; }
+
+      @keyframes typing-pulse {
+        0% { transform: scale(1); }
+        45% { transform: scale(1.015); border-color: var(--ascii-paper); }
+        100% { transform: scale(1); }
       }
-      #categories {
-        margin-top:50px;
-        margin-left:100px;
-        width:60%;
-        height:150px;
-        display:flex;
-        flex-direction:row;
+
+      @media (max-width: 850px) { .games { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      @media (max-width: 560px) {
+        .shell { width: min(100% - 24px, 1180px); }
+        .nav, .intro { align-items: flex-start; flex-direction: column; }
+        header .shell { padding-inline: 12px; }
+        .nav { gap: 12px; }
+        .landing { min-height: calc(100dvh - 154px); }
+        .doors { grid-template-columns: 1fr; }
+        .door { min-height: 130px; }
+        .games { grid-template-columns: 1fr; }
+        .search, .search input { width: 100%; }
       }
-      .button {
-        width:10%;
-        height:40px;
-      }
-      #search {
-        width:20%;
-        height:40px;
-        display:flex;
-        flex-direction:row;
+
+      @media (prefers-reduced-motion: reduce) {
+        .game, .search.is-typing { transition: none; animation: none; }
       }
     </style>
   </head>
   <body>
-    <div class="box" id="full">
-      <div class="box" id="top">
-        <div class="box" id="categories">
-          <button class="button" type="radio">Category #1</button>
-          <button class="button" type="radio">Category #2</button>
-          <button class="button" type="radio">Category #3</button>
-        </div>
-        <div class="box" id="search">
-          <input type="text">
-          <h1 style="font-family: Verdana; font-style: italic;">BootCloud</h1>
-        </div>
-      </div>
+    <div class="ascii-tile-background" aria-hidden="true">
+      <pre class="ascii-tile" id="ascii-tile"></pre>
     </div>
+    <header>
+      <div class="shell nav">
+          <a class="brand" href="#top"><img src="bootcloud-symbol.svg" alt="BootCloud logo"><strong>powered by BootCloud</strong></a>
+        <span class="account">FRIEND GROUP</span>
+      </div>
+    </header>
+
+    <main id="top" class="shell">
+      <section class="landing" aria-label="Choose a section">
+        <nav aria-label="Main sections">
+          <ul class="doors">
+            <li><a class="door" id="games-button" href="#games-browser"><span class="door-text"><span class="door-name">Games</span><span class="door-label">Game browser</span></span><span class="door-count">01</span></a></li>
+            <li><button class="door" id="chat-button" type="button" aria-expanded="false" aria-controls="chat-note"><span class="door-text"><span class="door-name">Chat</span><span class="door-label">In development</span></span><span class="door-count">02</span></button></li>
+          </ul>
+        </nav>
+        <p class="chat-note" id="chat-note" hidden>Chat is in development.</p>
+      </section>
+
+      <section class="browser" id="games-browser" aria-label="Game browser">
+        <section class="intro">
+          <h1>OUR GAMES</h1>
+          <p>Pick a game. Click it. Play in your browser.</p>
+        </section>
+
+        <section class="toolbar" aria-label="Game filters">
+          <div class="filters">
+            <button class="filter active" type="button" data-filter="all" aria-pressed="true">ALL</button>
+            <button class="filter" type="button" data-filter="co-op" aria-pressed="false">CO-OP</button>
+            <button class="filter" type="button" data-filter="fps" aria-pressed="false">FPS</button>
+            <button class="filter" type="button" data-filter="survival" aria-pressed="false">SURVIVAL</button>
+          </div>
+          <label class="search">⌕ <input type="search" placeholder="search games" aria-label="Search games"></label>
+        </section>
+
+        <div class="section-head"><h2>GAMES</h2><span class="online">4 GAMES READY</span></div>
+
+        <section class="games" aria-label="Available games">
+          <a class="game" data-category="co-op" href="https://rgc.zone/ports/8790-quest-alqaeda/run.html"><div class="game-cover"><img src="./banners/quest-for-al-qaeda.jpg" alt=""></div><div class="game-info"><h2 class="game-title">Quest for Al-Qa'eda</h2><div class="game-meta"><span>SURVIVAL</span><span class="status">PLAY</span></div></div></a>
+          <a class="game" data-category="fps" href="game-02.html"><div class="game-cover"><img src="bootcloud-symbol.svg" alt=""></div><div class="game-info"><h2 class="game-title">GAME 02</h2><div class="game-meta"><span>FPS</span><span class="status">PLAY</span></div></div></a>
+          <a class="game" data-category="survival" href="game-03.html"><div class="game-cover"><img src="bootcloud-symbol.svg" alt=""></div><div class="game-info"><h2 class="game-title">GAME 03</h2><div class="game-meta"><span>SURVIVAL</span><span class="status">PLAY</span></div></div></a>
+          <a class="game" data-category="co-op" href="game-04.html"><div class="game-cover"><img src="bootcloud-symbol.svg" alt=""></div><div class="game-info"><h2 class="game-title">GAME 04</h2><div class="game-meta"><span>CO-OP</span><span class="status">PLAY</span></div></div></a>
+        </section>
+      </section>
+    </main>
+
+    <footer><div class="shell">BOOTCLOUD / GAME COLLECTION</div></footer>
+    <script>
+      const chatButton = document.querySelector("#chat-button");
+      const gamesButton = document.querySelector("#games-button");
+      const gamesBrowser = document.querySelector("#games-browser");
+      const chatNote = document.querySelector("#chat-note");
+      const filterButtons = [...document.querySelectorAll(".filter")];
+      const gameCards = [...document.querySelectorAll(".game")];
+      const searchInput = document.querySelector(".search input");
+      const searchField = searchInput.closest(".search");
+      let typingTimer;
+      let reflowTimer;
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const asciiTileBackground = document.querySelector(".ascii-tile-background");
+      const asciiTile = document.querySelector("#ascii-tile");
+      const asciiSource = [
+        "  |    |    |    |    |    |    |    |    |    |    |  ",
+        "  `._  `.__.'  _.'    `.__.'  _.'    `.__.'  _.'    `.__.'  ",
+        "\"-.  \"-.    ,-\"  ,-\"\"-.    ,-\"  ,-\"\"-.    ,-\"  ,-\"\"-.    ,-\" ",
+        "  |    |    |    |    |    |    |    |    |    |    |    |  ",
+        "  |    |    |    |    |    |    |    |    |    |    |    |  ",
+        "_.'    `.__.'  _.'  _.'  _.'    `.__.'  _.'    `.__.'  _.'  ",
+        "  ,-\"\"-.    ,-\"  ,-\"  ,-\"  ,-\"\"-.    ,-\"  ,-\"\"-.    ,-\"  ,-\" ",
+        "  |    |    |    |    |    |    |    |    |    |    |    |  ",
+        "  |    |    |    |    |    |    |    |    |    |    |    |  ",
+        "_.'  _.'    `.__.'    `.__.'  _.'    `.__.'  _.'  _.'  _.'  ",
+        "  ,-\"  ,-\"\"-.    ,-\"\"-.    ,-\"  ,-\"\"-.    ,-\"  ,-\"  ,-\"  ,-\" ",
+        "  |    |    |    |    |    |    |    |    |    |    |    |  "
+      ];
+      const tileWidth = Math.max(...asciiSource.map((line) => line.length));
+      const normalizedSource = asciiSource.map((line) => line.padEnd(tileWidth, " "));
+      asciiTile.textContent = normalizedSource.join("\n");
+
+      const sizeAsciiBackground = () => {
+        const documentHeight = document.documentElement.scrollHeight;
+        const lineHeight = parseFloat(getComputedStyle(asciiTile).lineHeight);
+        const horizontalCopies = Math.ceil(window.innerWidth / 600) + 1;
+        const expandedSource = normalizedSource.map((line) => line.repeat(horizontalCopies));
+        const lineCount = Math.ceil(documentHeight / lineHeight) + normalizedSource.length;
+        asciiTile.textContent = Array.from({ length: lineCount }, (_, index) => expandedSource[index % expandedSource.length]).join("\n");
+        asciiTileBackground.style.height = `${documentHeight}px`;
+      };
+
+      sizeAsciiBackground();
+      window.addEventListener("resize", sizeAsciiBackground);
+
+      const animateGridReflow = (previousPositions) => {
+        if (reduceMotion) return;
+        gameCards.forEach((gameCard) => {
+          if (gameCard.hidden || !previousPositions.has(gameCard)) return;
+          const previousPosition = previousPositions.get(gameCard);
+          const currentPosition = gameCard.getBoundingClientRect();
+          const offsetX = previousPosition.left - currentPosition.left;
+          const offsetY = previousPosition.top - currentPosition.top;
+          if (!offsetX && !offsetY) return;
+          gameCard.animate(
+            [
+              { transform: `translate(${offsetX}px, ${offsetY}px)` },
+              { transform: "translate(0, 0)" }
+            ],
+            { duration: 360, easing: "cubic-bezier(.22, 1, .36, 1)" }
+          );
+        });
+      };
+
+      const normalizeSearchText = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      const updateGameVisibility = () => {
+        const selectedFilters = filterButtons
+          .filter((filterButton) => filterButton.dataset.filter !== "all" && filterButton.getAttribute("aria-pressed") === "true")
+          .map((filterButton) => filterButton.dataset.filter);
+        const queryTokens = searchInput.value.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+        const showAllCategories = filterButtons.find((filterButton) => filterButton.dataset.filter === "all").getAttribute("aria-pressed") === "true";
+
+        clearTimeout(reflowTimer);
+        gameCards.forEach((gameCard) => {
+          const matchesCategory = showAllCategories || selectedFilters.includes(gameCard.dataset.category);
+          const searchableText = normalizeSearchText(gameCard.textContent);
+          const matchesSearch = !queryTokens.length || queryTokens.every((token) => searchableText.includes(token));
+          const isFiltered = !(matchesCategory && matchesSearch);
+          if (isFiltered) {
+            gameCard.classList.add("is-filtered");
+            gameCard.inert = true;
+            gameCard.setAttribute("aria-hidden", "true");
+          } else {
+            gameCard.hidden = false;
+            gameCard.inert = false;
+            gameCard.setAttribute("aria-hidden", "false");
+            requestAnimationFrame(() => gameCard.classList.remove("is-filtered"));
+          }
+        });
+        reflowTimer = setTimeout(() => {
+          const previousPositions = new Map(
+            gameCards.filter((gameCard) => !gameCard.hidden).map((gameCard) => [gameCard, gameCard.getBoundingClientRect()])
+          );
+          gameCards.filter((gameCard) => gameCard.classList.contains("is-filtered")).forEach((gameCard) => {
+            gameCard.hidden = true;
+          });
+          requestAnimationFrame(() => animateGridReflow(previousPositions));
+        }, 220);
+      };
+
+      filterButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          if (button.dataset.filter === "all") {
+            filterButtons.forEach((filterButton) => {
+              const isAll = filterButton.dataset.filter === "all";
+              filterButton.classList.toggle("active", isAll);
+              filterButton.setAttribute("aria-pressed", String(isAll));
+            });
+          } else {
+            const isSelected = button.getAttribute("aria-pressed") === "true";
+            button.setAttribute("aria-pressed", String(!isSelected));
+            button.classList.toggle("active", !isSelected);
+            const hasSelectedCategory = filterButtons.some((filterButton) => filterButton.dataset.filter !== "all" && filterButton.getAttribute("aria-pressed") === "true");
+            const allButton = filterButtons.find((filterButton) => filterButton.dataset.filter === "all");
+            allButton.setAttribute("aria-pressed", String(!hasSelectedCategory));
+            allButton.classList.toggle("active", !hasSelectedCategory);
+          }
+          updateGameVisibility();
+        });
+      });
+
+      searchInput.addEventListener("input", () => {
+        searchField.classList.remove("is-typing");
+        requestAnimationFrame(() => searchField.classList.add("is-typing"));
+        clearTimeout(typingTimer);
+        typingTimer = setTimeout(() => searchField.classList.remove("is-typing"), 300);
+        updateGameVisibility();
+      });
+
+      chatButton.addEventListener("click", () => {
+        const isOpen = chatButton.getAttribute("aria-expanded") === "true";
+        chatButton.setAttribute("aria-expanded", String(!isOpen));
+        chatNote.hidden = isOpen;
+      });
+
+      gamesButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        document.body.classList.add("games-unlocked");
+        history.replaceState(null, "", `#${gamesBrowser.id}`);
+        gamesBrowser.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      });
+    </script>
   </body>
 </html>
