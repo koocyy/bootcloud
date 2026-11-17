@@ -1,5 +1,6 @@
 import base64
 import json
+import mimetypes
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -17,7 +18,12 @@ jwe_key = jwk.JWK(
 )
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+# browsers only compile WebAssembly served with this type; some systems don't know it
+mimetypes.add_type("application/wasm", ".wasm")
+
 app.mount("/assets", StaticFiles(directory="assets"), name="assets")
+# self-hosted games; html=True serves games/<name>/index.html for /games/<name>/
+app.mount("/games", StaticFiles(directory="games", html=True), name="games")
 
 
 def gen_jwt(ip: str) -> str:
