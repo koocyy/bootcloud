@@ -13,8 +13,18 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 # systemd reads the root-only certificate files and hands copies to the service (%d)
 LoadCredential=fullchain.pem:/etc/letsencrypt/live/bootcloud.eu/fullchain.pem
 LoadCredential=privkey.pem:/etc/letsencrypt/live/bootcloud.eu/privkey.pem
+# /var/lib/bootcloud, owned by www-data: holds the session key and chat bans.
+# systemd passes its path to the app as $STATE_DIRECTORY.
+StateDirectory=bootcloud
+StateDirectoryMode=0700
+# --ws-max-size: refuse websocket messages over 4 KB before they are read into memory
+#   (chat messages are at most a few hundred bytes; the default would allow 16 MB)
+# --limit-concurrency: last-resort cap on open connections; past it uvicorn answers 503
 ExecStart=/srv/bootcloud-venv/bin/uvicorn main:app --host 0.0.0.0 --port 443 \
-    --ssl-certfile %d/fullchain.pem --ssl-keyfile %d/privkey.pem
+    --ssl-certfile %d/fullchain.pem --ssl-keyfile %d/privkey.pem \
+    --ws-max-size 4096 --limit-concurrency 4000
+# if something still goes wrong, kill and restart the app instead of starving the server
+MemoryMax=512M
 # allow binding port 443 without running as root
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE

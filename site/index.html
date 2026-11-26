@@ -6,6 +6,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;600&family=Pixelify+Sans:wght@400..700&display=swap" rel="stylesheet">
     <title>BootCloud</title>
     <link href="assets/bootcloud-symbol.svg" rel="icon">
+    <script src="assets/online.js" defer></script>
+    <script src="assets/chat-popup.js" defer></script>
     <style>
       :root {
         color-scheme: dark;
@@ -51,7 +53,7 @@
       h1, h2, p { margin: 0; }
       h1 { display: inline-block; padding: 10px 14px; border: 2px solid var(--line); background: var(--ink); font: 800 clamp(2rem, 4vw, 3rem) / .95 var(--body); letter-spacing: .01em; text-transform: uppercase; }
       .intro p { max-width: 300px; padding: 10px 12px; border: 2px solid var(--line); background: var(--panel); color: var(--muted); font-size: .75rem; line-height: 1.6; }
-      .intro p, .chat-note, .section-head, .game-info { box-shadow: none; }
+      .intro p, .section-head, .game-info { box-shadow: none; }
 
       .doors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 760px; width: 100%; margin: 0 auto; padding: 0; list-style: none; }
       .doors > li { min-width: 0; }
@@ -62,7 +64,6 @@
       .door-name { font: 800 clamp(1.7rem, 5vw, 3rem) / 1 var(--body); letter-spacing: .04em; }
       .door-label { color: #eef7ff; font: 600 .68rem var(--code); letter-spacing: .05em; }
       .door-count { color: #eef7ff; font: 700 2.2rem / 1 var(--code); }
-      .chat-note { max-width: 760px; margin: -12px auto 0; padding: 9px 12px; border: 2px solid var(--line); background: var(--panel); color: var(--muted); font: .7rem var(--code); }
 
       .browser { padding-top: 38px; }
       .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line); }
@@ -133,10 +134,9 @@
         <nav aria-label="Main sections">
           <ul class="doors">
             <li><a class="door" id="games-button" href="#games-browser"><span class="door-text"><span class="door-name">Games</span><span class="door-label">Game browser</span></span><span class="door-count">01</span></a></li>
-            <li><button class="door" id="chat-button" type="button" aria-expanded="false" aria-controls="chat-note"><span class="door-text"><span class="door-name">Chat</span><span class="door-label">In development</span></span><span class="door-count">02</span></button></li>
+            <li><a class="door" href="chat" target="_blank" data-chat-popup><span class="door-text"><span class="door-name">Chat</span><span class="door-label">Opens in a popup</span></span><span class="door-count">02</span></a></li>
           </ul>
         </nav>
-        <p class="chat-note" id="chat-note" hidden>Chat is in development.</p>
       </section>
 
       <section class="browser" id="games-browser" aria-label="Game browser">
@@ -168,10 +168,8 @@
 
     <footer><div class="shell">BOOTCLOUD / GAME COLLECTION</div></footer>
     <script>
-      const chatButton = document.querySelector("#chat-button");
       const gamesButton = document.querySelector("#games-button");
       const gamesBrowser = document.querySelector("#games-browser");
-      const chatNote = document.querySelector("#chat-note");
       const filterButtons = [...document.querySelectorAll(".filter")];
       const gameCards = [...document.querySelectorAll(".game")];
       const searchInput = document.querySelector(".search input");
@@ -295,12 +293,6 @@
         clearTimeout(typingTimer);
         typingTimer = setTimeout(() => searchField.classList.remove("is-typing"), 300);
         updateGameVisibility();
-      });
-
-      chatButton.addEventListener("click", () => {
-        const isOpen = chatButton.getAttribute("aria-expanded") === "true";
-        chatButton.setAttribute("aria-expanded", String(!isOpen));
-        chatNote.hidden = isOpen;
       });
 
       gamesButton.addEventListener("click", (event) => {

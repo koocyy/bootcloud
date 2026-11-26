@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Chat | BootCloud</title>
+    <link href="assets/bootcloud-symbol.svg" rel="icon">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@100..800&family=Pixelify+Sans:wght@400..700&display=swap">
+    <style>
+      /* components taken from temp.html; colours are shades of blue only,
+         using the main site's blues (#2F2FE4, #162E93, #6EACDA) where they fit */
+      :root {
+        --font-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+        --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;
+        --font-pixel: "Pixelify Sans", "JetBrains Mono", ui-monospace, monospace;
+        --ink: #060b26;
+        --paper: #e3ecff;
+        --bg: var(--ink);
+        --card: #2f2fe4;
+        --sunken: #030617;
+        --text: var(--paper);
+        --muted: #8fa3d6;
+        --line: var(--paper);
+        --rule: #e3ecff33;
+        --hi: #6eacda;
+        --name-1: #6eacda;
+        --name-2: #5ad1ff;
+        --name-3: #9fc3ff;
+        --name-4: #4f86ff;
+        --name-5: #8c9dff;
+        --name-6: #2fb4ff;
+        --ok: #5ad1ff;
+        --warn: #4f86ff;
+        --bad: #162e93;
+        --error: #9fc3ff;
+        --bw: 3px;
+        --shadow: 4px 4px 0 0 var(--line);
+        --dots: radial-gradient(#060b2629 1.2px, #0000 1.7px);
+        --press: 90ms steps(2, end);
+        color-scheme: dark;
+        accent-color: var(--hi);
+      }
+
+      *, *::before, *::after { box-sizing: border-box; }
+      html { background: var(--bg); color: var(--text); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
+      body { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: 100dvh; margin: 0; line-height: 1.5; }
+      ::selection { background: var(--hi); color: var(--ink); }
+      :focus-visible { outline: 3px solid var(--hi); outline-offset: 2px; }
+      [hidden] { display: none !important; }
+      h2 { margin: 0; font-size: 1.5rem; font-weight: 900; font-stretch: 125%; line-height: 1; letter-spacing: -.01em; text-transform: uppercase; }
+      p { margin: 0; text-wrap: pretty; }
+
+      .label { font-family: var(--font-mono); font-size: .75rem; font-weight: 700; line-height: 1.35; letter-spacing: .06em; text-transform: uppercase; }
+      .note { font-size: .875rem; color: var(--muted); }
+
+      .btn {
+        display: inline-flex; justify-content: center; align-items: center; gap: .5rem;
+        min-height: 3rem; padding: 0 1.25rem;
+        border: var(--bw) solid var(--line);
+        background: var(--sys, var(--hi)); color: var(--ink);
+        box-shadow: var(--shadow);
+        font-family: var(--font-body); font-size: .9375rem; font-weight: 800; font-stretch: 112%;
+        line-height: 1; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap;
+        cursor: pointer;
+        transition: transform var(--press), box-shadow var(--press);
+      }
+      .btn-secondary { background: var(--card); color: var(--text); }
+      .btn-secondary:hover { background: var(--text); color: var(--ink); }
+      .btn-sm { min-height: 2.25rem; padding: 0 .75rem; border-width: 2px; box-shadow: 3px 3px 0 0 var(--line); font-size: .75rem; }
+      /* hover lifts the button off its shadow, pressing pushes it into the shadow;
+         .pressed does the same push when Enter sends instead of a click */
+      .btn:hover:not(:disabled) { box-shadow: 6px 6px 0 0 var(--line); transform: translate(-2px, -2px); }
+      .btn-sm:hover:not(:disabled) { box-shadow: 5px 5px 0 0 var(--line); }
+      .btn:is(:active, .pressed):not(:disabled) { box-shadow: 0 0 0 0 var(--line); transform: translate(4px, 4px); }
+      .btn-sm:is(:active, .pressed):not(:disabled) { transform: translate(3px, 3px); }
+      .btn:disabled { opacity: .55; box-shadow: none; cursor: not-allowed; transform: none; }
+
+      .tag {
+        display: inline-flex; align-items: center; gap: .4rem; min-width: 0;
+        min-height: 1.75rem; padding: .15rem .5rem;
+        border: 2px solid var(--line); background: var(--card); color: var(--text);
+        font-family: var(--font-mono); font-size: .75rem; font-weight: 700; line-height: 1.2;
+        letter-spacing: .04em; text-transform: uppercase; white-space: nowrap;
+      }
+      .tag span { overflow: hidden; text-overflow: ellipsis; }
+      .tag i, .msg-name i { flex: none; width: .7rem; height: .7rem; border: 2px solid var(--line); background: var(--sys, var(--hi)); }
+
+      .marquee {
+        display: flex; justify-content: space-between; align-items: center; gap: .75rem;
+        min-height: 2.75rem; padding: .25rem .75rem;
+        border-bottom: var(--bw) solid var(--line);
+        background-color: var(--sys, var(--hi)); background-image: var(--dots); background-size: 8px 8px;
+        color: var(--ink);
+      }
+      .marquee-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: .75rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+      .marquee-status { flex: none; font-family: var(--font-pixel); font-size: 1.125rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+
+      input[type="text"] {
+        width: 100%; min-width: 0; min-height: 3rem; padding: 0 .75rem;
+        border: 2px solid var(--line); border-radius: 0;
+        background: var(--sunken); color: var(--text);
+        font: inherit;
+      }
+      ::placeholder { color: var(--muted); opacity: 1; }
+
+      dialog { width: min(24rem, calc(100vw - 2rem)); padding: 0; border: var(--bw) solid var(--line); background: var(--card); color: var(--text); box-shadow: 6px 6px 0 0 var(--hi); }
+      dialog::backdrop { background: #000000b8; }
+      .dialog-body { display: grid; gap: 1rem; padding: 1rem; }
+      .dialog-body .note { color: var(--name-3); }
+      .field { display: grid; gap: .35rem; }
+      .field label { font-family: var(--font-mono); font-size: .75rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+      .error { padding-left: .5rem; border-left: 4px solid var(--error); color: var(--error); font-family: var(--font-mono); font-size: .75rem; font-weight: 700; }
+      .row { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+
+      /* ---------- chat layout ---------- */
+      .me-bar { display: flex; align-items: center; gap: .5rem; min-width: 0; padding: .625rem .75rem; border-bottom: var(--bw) solid var(--line); background: var(--sunken); }
+      .conn { display: inline-flex; flex: none; align-items: center; gap: .4rem; margin-left: auto; color: var(--muted); }
+      .conn::before { content: ""; width: .6rem; height: .6rem; border: 2px solid var(--line); background: var(--warn); }
+      .conn[data-state="live"]::before { background: var(--ok); }
+      .conn[data-state="offline"]::before { background: var(--bad); }
+      .conn[data-state="idle"]::before { background: var(--muted); }
+      .conn[data-state="blocked"]::before { background: var(--bad); }
+
+      .log { display: flex; flex-direction: column; gap: .75rem; overflow-y: auto; overscroll-behavior: contain; padding: 1rem .75rem 1.25rem; scrollbar-color: var(--text) var(--sunken); }
+      .empty { display: grid; gap: .35rem; margin: auto; max-width: 18rem; text-align: center; }
+      .empty .pixel { color: var(--hi); font-family: var(--font-pixel); font-size: 1.375rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+
+      .msg {
+        --sys: var(--hi);
+        display: grid; gap: .2rem; align-self: flex-start;
+        max-width: min(100%, 20rem); padding: .5rem .75rem;
+        border: 2px solid var(--line); background: var(--sunken);
+        box-shadow: 3px 3px 0 0 var(--sys);
+      }
+      .msg.mine { align-self: flex-end; background: var(--card); }
+      /* name blues are too close to the blue bubble, so your own name uses the text colour */
+      .msg.mine .msg-name, .msg.mine .msg-head time { color: var(--text); }
+      .msg.cont { margin-top: -.375rem; }
+      .msg-head { display: flex; align-items: center; gap: .75rem; }
+      .msg-name { display: inline-flex; align-items: center; gap: .4rem; min-width: 0; color: var(--sys); font-family: var(--font-mono); font-size: .75rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+      .msg-head time { margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-size: .6875rem; }
+      .msg-tag { color: var(--muted); font-family: var(--font-mono); font-size: .6875rem; cursor: help; }
+      .msg.mine .msg-tag { color: var(--name-3); }
+      .notice {
+        align-self: center; max-width: 22rem; padding: .375rem .625rem;
+        border: 2px dashed var(--rule); color: var(--muted);
+        font-family: var(--font-mono); font-size: .75rem; text-align: center;
+        animation: fade-in 200ms steps(4, end);
+      }
+      .msg-text { overflow-wrap: anywhere; }
+
+      .composer { display: flex; gap: .625rem; padding: .75rem .75rem 1rem; border-top: var(--bw) solid var(--line); background: var(--sunken); }
+
+      /* ---------- animations ----------
+         Everything moves in steps() so motion stays chunky and pixel-like.
+         Passive: runs on its own. Active: answers something that just happened. */
+
+      /* passive: the dotted header bars crawl sideways one pixel at a time */
+      .marquee { animation: dots-crawl 1.6s steps(8, end) infinite; }
+      @keyframes dots-crawl { to { background-position: 8px 0; } }
+
+      /* passive: the connection light blinks briefly while live, fast while connecting */
+      .conn[data-state="live"]::before { animation: live-blink 2.4s steps(1, end) infinite; }
+      .conn[data-state="connecting"]::before { animation: connecting-blink .8s steps(1, end) infinite; }
+      @keyframes live-blink { 0% { background: var(--ok); } 88% { background: var(--ink); } }
+      @keyframes connecting-blink { 0% { background: var(--warn); } 50% { background: var(--ink); } }
+
+      /* passive: blinking pixel caret in the empty chat */
+      .empty .pixel::after { content: "_"; animation: caret 1s steps(1, end) infinite; }
+      @keyframes caret { 50% { opacity: 0; } }
+
+      /* active: new messages slide in from their side while their shadow grows in */
+      .msg.enter { animation: msg-in 200ms steps(4, end) both; }
+      .msg.mine { --enter-x: 12px; }
+      @keyframes msg-in {
+        from { opacity: 0; transform: translateX(var(--enter-x, -12px)); box-shadow: 0 0 0 0 var(--sys); }
+      }
+
+      /* active: the name dialog drops in over a fading backdrop */
+      dialog[open] { animation: drop-in 200ms steps(4, end); }
+      dialog[open]::backdrop { animation: fade-in 200ms steps(4, end); }
+      @keyframes drop-in { from { opacity: 0; transform: translateY(-24px); } }
+      @keyframes fade-in { from { opacity: 0; } }
+
+      /* active (driven from the script): count bump, name tag bump, input shake */
+      #count { display: inline-block; }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="marquee">
+      <span class="marquee-label">BootCloud / Chat</span>
+      <p class="marquee-status"><span id="count">-</span> in chat</p>
+    </header>
+
+    <div class="me-bar">
+      <span class="tag" id="me"><i aria-hidden="true"></i><span id="me-name">no name</span></span>
+      <button class="btn btn-sm btn-secondary" id="change-name" type="button">Rename</button>
+      <span class="conn label" id="conn" data-state="connecting" role="status">Connecting</span>
+    </div>
+
+    <main class="log" id="log" role="log" aria-label="Chat messages">
+      <div class="empty" id="empty">
+        <p class="pixel">No messages yet</p>
+        <p class="note">Say hi. Everyone on BootCloud sees this chat.</p>
+      </div>
+    </main>
+
+    <form class="composer" id="composer" autocomplete="off">
+      <input id="message" type="text" maxlength="300" placeholder="Type a message" aria-label="Message" enterkeyhint="send">
+      <button class="btn" id="send" type="submit">Send</button>
+    </form>
+
+    <dialog id="name-dialog" aria-labelledby="name-title">
+      <form id="name-form" novalidate>
+        <div class="marquee"><span class="marquee-label">Before you chat</span><p class="marquee-status">Hi</p></div>
+        <div class="dialog-body">
+          <h2 id="name-title">Pick a name</h2>
+          <p class="note">This is what others see next to your messages.</p>
+          <div class="field">
+            <label for="name-input">Name</label>
+            <input id="name-input" type="text" maxlength="16" autocomplete="nickname" placeholder="2 to 16 characters">
+            <p class="error" id="name-error" role="alert" hidden></p>
+          </div>
+          <div class="row">
+            <button class="btn" type="submit">Join chat</button>
+            <button class="btn btn-secondary" id="name-cancel" type="button">Cancel</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <script>
+      const NAME_KEY = "bootcloud-chat-name";
+      const NAME_COLORS = ["--name-1", "--name-2", "--name-3", "--name-4", "--name-5", "--name-6"];
+      const SEND_INTERVAL = 800; // the server drops messages sent faster than this
+
+      const log = document.getElementById("log");
+      const empty = document.getElementById("empty");
+      const count = document.getElementById("count");
+      const me = document.getElementById("me");
+      const meName = document.getElementById("me-name");
+      const conn = document.getElementById("conn");
+      const composer = document.getElementById("composer");
+      const messageInput = document.getElementById("message");
+      const sendButton = document.getElementById("send");
+      const nameDialog = document.getElementById("name-dialog");
+      const nameForm = document.getElementById("name-form");
+      const nameInput = document.getElementById("name-input");
+      const nameError = document.getElementById("name-error");
+      const nameCancel = document.getElementById("name-cancel");
+      const changeName = document.getElementById("change-name");
+      const baseTitle = document.title;
+      const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+
+      // active animations driven from here; all of them skip when reduced motion is on
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+      const play = (element, keyframes, options) => {
+        if (!reduceMotion.matches) element.animate(keyframes, options);
+      };
+      const bump = (element) => play(element,
+        [{ transform: "translateY(-5px)" }, { transform: "none" }],
+        { duration: 200, easing: "steps(3, end)" });
+      const shake = (element) => play(element,
+        [0, -6, 6, -4, 4, 0].map((x) => ({ transform: `translateX(${x}px)` })),
+        { duration: 260 });
+      const press = (button) => {
+        button.classList.add("pressed");
+        setTimeout(() => button.classList.remove("pressed"), 120);
+      };
+
+      let name = localStorage.getItem(NAME_KEY) || "";
+      let socket = null;
+      let retryDelay = 1000;
+      let retryTimer;
+      let lastSent = 0;
+      let unread = 0;
+      let myTag = ""; // this browser's public tag, sent by the server on join
+      let historyLimit = 30; // replaced by the server's limit on join (CHAT_HISTORY in main.py)
+      let lastAuthor = null;
+      let lastTime = 0;
+
+      const colorFor = (author) => {
+        let hash = 0;
+        for (const ch of author.toLowerCase()) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+        return `var(${NAME_COLORS[hash % NAME_COLORS.length]})`;
+      };
+
+      const showName = () => {
+        meName.textContent = name ? (myTag ? `${name} #${myTag}` : name) : "no name";
+        me.style.setProperty("--sys", name ? colorFor(myTag || name) : "var(--muted)");
+      };
+
+      const updateTitle = () => { document.title = unread ? `(${unread}) ${baseTitle}` : baseTitle; };
+
+      const setState = (state) => {
+        conn.dataset.state = state;
+        conn.textContent = { idle: "Not joined", live: "Live", connecting: "Connecting", offline: "Reconnecting", blocked: "Can't join" }[state];
+        sendButton.disabled = state !== "live";
+        changeName.hidden = !name;
+      };
+
+      const scrollToBottom = (smooth = false) => {
+        log.scrollTo({ top: log.scrollHeight, behavior: smooth && !reduceMotion.matches ? "smooth" : "auto" });
+      };
+
+      const setCount = (value) => {
+        if (count.textContent === String(value)) return;
+        count.textContent = value;
+        bump(count);
+      };
+
+      const makeHead = ({ name: author, tag = "", time }) => {
+        const head = document.createElement("header");
+        head.className = "msg-head";
+        const who = document.createElement("span");
+        who.className = "msg-name";
+        who.append(document.createElement("i"), author);
+        const badge = document.createElement("span");
+        badge.className = "msg-tag";
+        badge.textContent = tag ? `#${tag}` : "";
+        badge.title = "Browser tag: tells apart people with the same name";
+        const stamp = document.createElement("time");
+        stamp.dateTime = time;
+        stamp.textContent = clock.format(new Date(time));
+        head.append(who, badge, stamp);
+        return head;
+      };
+
+      // keep only the newest `historyLimit` messages on screen, same as the server keeps
+      const trimOldest = () => {
+        const shown = log.querySelectorAll(".msg");
+        for (let i = 0; i < shown.length - historyLimit; i++) shown[i].remove();
+        // if the oldest one left was a follow-up, its name header went with the removed one
+        const first = log.querySelector(".msg");
+        if (first?.classList.contains("cont")) {
+          first.classList.remove("cont");
+          first.prepend(makeHead(first.chatData));
+        }
+      };
+
+      const addMessage = (data, animate = false) => {
+        const { name: author, tag = "", text, time } = data;
+        const sentAt = new Date(time);
+        // stack quick follow-ups from the same person (same browser and name)
+        const authorKey = `${tag}:${author}`;
+        const continued = authorKey === lastAuthor && sentAt - lastTime < 2 * 60 * 1000;
+        lastAuthor = authorKey;
+        lastTime = sentAt;
+
+        const message = document.createElement("article");
+        message.className = "msg";
+        message.chatData = data;
+        // "mine" goes by browser tag, so someone else using your name isn't shown as you
+        message.classList.toggle("mine", Boolean(tag) && tag === myTag);
+        message.classList.toggle("cont", continued);
+        message.style.setProperty("--sys", colorFor(tag || author));
+        if (animate) {
+          message.classList.add("enter");
+          message.addEventListener("animationend", () => message.classList.remove("enter"), { once: true });
+        }
+
+        if (!continued) message.append(makeHead(data));
+
+        const body = document.createElement("p");
+        body.className = "msg-text";
+        body.textContent = text; // never innerHTML: messages are untrusted
+        message.append(body);
+        log.append(message);
+        empty.hidden = true;
+        trimOldest();
+      };
+
+      // a line from the chat itself (slow down, refused, ...), not from a person
+      const showNotice = (text) => {
+        const last = log.lastElementChild;
+        if (last?.classList.contains("notice") && last.textContent === text) last.remove();
+        const notice = document.createElement("p");
+        notice.className = "notice";
+        notice.setAttribute("role", "status");
+        notice.textContent = text;
+        log.append(notice);
+        empty.hidden = true;
+        scrollToBottom(true);
+      };
+
+      const showHistory = (messages) => {
+        log.querySelectorAll(".msg, .notice").forEach((message) => message.remove());
+        lastAuthor = null;
+        // history appears at once; only messages that arrive live animate in
+        messages.forEach((message) => addMessage(message));
+        empty.hidden = messages.length > 0;
+        scrollToBottom();
+      };
+
+      const receive = (message) => {
+        addMessage(message, true);
+        // always jump to the newest message, even if the reader had scrolled up
+        scrollToBottom(true);
+        if (document.hidden || !document.hasFocus()) {
+          unread += 1;
+          updateTitle();
+        }
+      };
+
+      const connect = () => {
+        clearTimeout(retryTimer);
+        if (socket) {
+          socket.onclose = null;
+          socket.close();
+        }
+        setState("connecting");
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${protocol}//${location.host}/ws/chat?name=${encodeURIComponent(name)}`);
+        socket = ws;
+        ws.onopen = () => { retryDelay = 1000; setState("live"); };
+        ws.onmessage = (event) => {
+          let data;
+          try { data = JSON.parse(event.data); } catch { return; }
+          if (data.type === "history") {
+            myTag = data.you || "";
+            if (Number.isInteger(data.limit) && data.limit > 0) historyLimit = data.limit;
+            showName();
+            showHistory(data.messages);
+          } else if (data.type === "message") receive(data);
+          else if (data.type === "presence") setCount(data.count);
+          else if (data.type === "notice") {
+            showNotice(data.text);
+            shake(messageInput);
+          }
+        };
+        ws.onclose = (event) => {
+          socket = null;
+          setState("offline");
+          count.textContent = "-";
+          // close codes from the server (see main.py); the ones that retrying can't fix stop here
+          if (event.code === 4000) {
+            askName("The server didn't accept that name. Try another one.");
+            return;
+          }
+          if (event.code === 4001) {
+            setState("blocked");
+            showNotice("This browser has no BootCloud session yet. Reload this window to join the chat.");
+            return;
+          }
+          if (event.code === 4003) {
+            setState("blocked");
+            showNotice("This browser can't use the chat.");
+            return;
+          }
+          if (event.code === 4029) {
+            showNotice("Too many chat windows are open in this browser. This one reconnects when you close another.");
+          }
+          retryTimer = setTimeout(connect, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 30000);
+        };
+      };
+
+      const askName = (error = "") => {
+        nameInput.value = name;
+        nameError.textContent = error;
+        nameError.hidden = !error;
+        nameCancel.hidden = !name;
+        if (!nameDialog.open) nameDialog.showModal();
+        nameInput.select();
+        if (error) shake(nameInput);
+      };
+
+      nameForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const value = nameInput.value.replace(/\s+/g, " ").trim();
+        if (value.length < 2) {
+          nameError.textContent = "Use at least 2 characters.";
+          nameError.hidden = false;
+          nameInput.focus();
+          shake(nameInput);
+          return;
+        }
+        const changed = value !== name;
+        name = value;
+        localStorage.setItem(NAME_KEY, name);
+        showName();
+        if (changed) bump(me);
+        nameDialog.close();
+        if (changed || !socket) connect();
+        messageInput.focus();
+      });
+
+      // without a name there is nothing to go back to, so Esc must not close the dialog
+      nameDialog.addEventListener("cancel", (event) => { if (!name) event.preventDefault(); });
+      nameCancel.addEventListener("click", () => nameDialog.close());
+      changeName.addEventListener("click", () => askName());
+
+      composer.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const text = messageInput.value.trim();
+        const now = Date.now();
+        // nothing to send, offline or too fast: shake, and keep the text so Enter can retry
+        if (!text || socket?.readyState !== WebSocket.OPEN || now - lastSent < SEND_INTERVAL) {
+          shake(messageInput);
+          return;
+        }
+        lastSent = now;
+        socket.send(JSON.stringify({ text }));
+        press(sendButton);
+        messageInput.value = "";
+        messageInput.focus();
+      });
+
+      window.addEventListener("focus", () => { unread = 0; updateTitle(); });
+
+      showName();
+      if (name) connect();
+      else {
+        setState("idle");
+        askName();
+      }
+    </script>
+  </body>
+</html>
