@@ -53,7 +53,7 @@ CLOSE_POLICY = 1008
 
 
 # ---------- files kept outside the repo ----------
-# systemd's StateDirectory= sets STATE_DIRECTORY (/var/lib/bootcloud on the server).
+# systemd's StateDirectory= sets STATE_DIRECTORY on the server.
 # Locally it falls back to site/.state, which git ignores. This repo is public:
 # never commit anything from that folder.
 STATE_DIR = Path(os.environ.get("STATE_DIRECTORY", ".state").split(":")[0])
@@ -808,9 +808,9 @@ async def serve_main():
 
 
 if __name__ == "__main__":
-    # Sets the admin password. Run it from site/ as the user the app runs as, e.g.
-    #   sudo -u www-data env STATE_DIRECTORY=/var/lib/bootcloud \
-    #       /srv/bootcloud-venv/bin/python main.py set-admin-password
+    # Sets the admin password: python main.py set-admin-password
+    # Run it from site/ as the user the service runs as, with STATE_DIRECTORY set
+    # to the service's state directory, so the app can read the file it writes.
     import getpass
     import sys
 

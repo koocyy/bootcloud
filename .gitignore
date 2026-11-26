@@ -3,8 +3,10 @@
 *.key
 .env
 .env.*
-# local session key and chat bans (on the server they live in /var/lib/bootcloud)
+# local session key and chat bans
 .state/
+# private notes, e.g. SERVER.local.md with the server's setup
+*.local.md
 
 # Python
 __pycache__/

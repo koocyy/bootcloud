@@ -1,7 +1,7 @@
 # bootcloud
 
-Source for **https://bootcloud.eu**, a FastAPI app served by uvicorn on our
-server (`jarvis`). There is no nginx or other web server in front of it.
+Source for **https://bootcloud.eu**, a FastAPI app served by uvicorn: a game
+browser with self-hosted browser games, a live "online" counter and a chat.
 
 ## Layout
 
@@ -32,46 +32,21 @@ cd site
 ```
 
 Run uvicorn from inside `site/`: `main.py` opens `index.html` by relative path.
-Locally the session key is created in `site/.state/`, which git ignores.
-
-## How it runs on the server
-
-| What | Where |
-|---|---|
-| This repo | `/srv/bootcloud` (shortcut: `~/bootcloud`) |
-| Python virtualenv | `/srv/bootcloud-venv` |
-| App service | `bootcloud.service`, uvicorn on port 443 with the TLS certificate |
-| Redirect service | `bootcloud-redirect.service`, port 80, sends everything to `https://bootcloud.eu` |
-| Certificate | Let's Encrypt, in `/etc/letsencrypt/live/bootcloud.eu/` |
-| Session key, admin password hash, bans, blocked words | `/var/lib/bootcloud/` (created by systemd, owned by `www-data`) |
-
-Both services run as the unprivileged `www-data` user, start on boot and
-restart themselves if they crash.
+Locally the session key and other state go in `site/.state/`, which git ignores.
+To try the admin panel locally, run `python main.py set-admin-password` in `site/`.
 
 ## Deploying a change
 
-```bash
-cd ~/bootcloud
-git pull
-sudo systemctl restart bootcloud     # only needed when Python code changed
-```
+On the server: `git pull`, then restart the `bootcloud` service if Python changed.
 
-- Pages and files (`index.html`, `chat.html`, `assets/`, `games/`) are read from
-  disk on every request, so they are live right after `git pull`.
-- Changes to `main.py` (or any Python) need the restart.
-- Changes to `deploy/bootcloud.service` need it copied into place first:
-  `sudo cp deploy/bootcloud.service /etc/systemd/system/ && sudo systemctl daemon-reload`,
-  then the restart.
-- New Python package: add it to `requirements.txt`, then on the server run
-  `/srv/bootcloud-venv/bin/pip install -r requirements.txt` and restart.
-
-Useful commands:
-
-```bash
-systemctl status bootcloud            # is it running?
-sudo journalctl -u bootcloud -f       # live log, including Python errors
-sudo systemctl restart bootcloud
-```
+- Pages and files (`index.html`, `chat.html`, `admin.html`, `assets/`, `games/`)
+  are read from disk on every request, so they are live right after `git pull`.
+- Changes to `main.py` (or any Python) need the service restarted.
+- Changes to `deploy/bootcloud.service` need the unit copied into systemd and
+  `systemctl daemon-reload` before the restart. The files in `deploy/` are
+  reference copies of the live units.
+- New Python package: add it to `requirements.txt` and install it into the
+  server's virtualenv before restarting.
 
 ## Browser sessions, chat and limits
 
@@ -81,19 +56,18 @@ renewed on each visit, so a browser keeps its ID; the online count, the chat and
 all limits work per browser, because many students share one school IP. A browser
 profile is not a PC: another browser or a private window counts as someone new.
 
-**The key** is `/var/lib/bootcloud/session.key`, made on first start. Keep it:
-deleting it gives every browser a new ID. Never copy it into the repo.
+**Server state** lives in the app's state directory (systemd's `StateDirectory=`,
+passed to the app as `$STATE_DIRECTORY`), never in the repo:
+
+| File | What |
+|---|---|
+| `session.key` | Key for the session cookies, made on first start. Keep it: deleting it gives every browser a new ID. |
+| `admin-password` | scrypt hash of the admin password. Delete it to turn the admin panel off. |
+| `chat-bans.txt` | Banned browser tags, one per line; a `#` starts a note. Edits apply without a restart. |
+| `blocked-words.txt` | Words the chat refuses, one per line. Edited from the admin panel. |
 
 **Chat history** is the last 30 messages, kept in memory only: a restart clears
 it. People who join see those 30, and the chat window never shows more.
-
-**Banning someone from the chat:** every chat name shows a tag like `#a1b2c3`.
-Put it on its own line in `/var/lib/bootcloud/chat-bans.txt` (a `#` after it
-starts a comment). It applies at once, no restart needed:
-
-```bash
-echo 'a1b2c3  # spam, 2026-11-26' | sudo -u www-data tee -a /var/lib/bootcloud/chat-bans.txt
-```
 
 **Admin panel:** type `/admin pass=<password>` in the chat. The command is never
 posted; with the right password that browser is admin for 12 hours (or until it
@@ -112,20 +86,13 @@ browser and 20 per IP every 15 minutes. What it can do:
   their messages carry an ADMIN badge that a name can't fake.
 - **Admins:** log out, or log out every admin at once.
 
-Bans and blocked words are files in `/var/lib/bootcloud/` (`chat-bans.txt`,
-`blocked-words.txt`) and survive restarts; mutes, pause, slow mode and the pin
-are in memory and reset on restart.
+Bans and blocked words survive restarts; mutes, pause, slow mode and the pin are
+in memory and reset on restart. Messages starting with `/` or containing `pass=`
+are never posted, so a mistyped command can't leak the password.
 
-The password is not in this repo (it is public). Set it on the server, from
-`site/`; only a scrypt hash is stored, in `/var/lib/bootcloud/admin-password`:
-
-```bash
-cd /srv/bootcloud/site
-sudo -u www-data env STATE_DIRECTORY=/var/lib/bootcloud \
-    /srv/bootcloud-venv/bin/python main.py set-admin-password
-```
-
-Run it again to change the password; delete that file to turn the panel off.
+The password is not in this repo (it is public). Set it with
+`python main.py set-admin-password`, run from `site/` as the service's user with
+`STATE_DIRECTORY` pointing at the state directory; only the hash is stored.
 
 **Limits** are at the top of `main.py` (tabs and chat windows per browser,
 per-IP backstops, message rate, history length). Two more are uvicorn flags and
@@ -140,20 +107,5 @@ restarted instead of starving the server).
 - **API docs are off.** `/docs`, `/redoc` and `/openapi.json` are disabled in
   `main.py` so they aren't public. Remove the three arguments to `FastAPI()`
   when you want them locally.
-- **The files in `deploy/` are reference copies.** The live units are in
-  `/etc/systemd/system/`. After changing one, an admin copies it there and runs
-  `sudo systemctl daemon-reload && sudo systemctl restart bootcloud`.
-- **Certificate renewal is automatic** (`certbot.timer`). To renew, certbot
-  briefly stops the redirect service to use port 80 itself, then restarts the
-  app so it loads the new certificate. Port 80 must stay forwarded on the router.
-- **This repo is public.** Never commit passwords, keys or `.env` files.
-
-### Pushing from the server
-
-The server's copy pulls from GitHub without a login, because the repo is public.
-To **push** from the server, each person needs their own GitHub credentials there,
-e.g. an SSH key added to their GitHub account, then:
-
-```bash
-git remote set-url origin git@github.com:koocyy/bootcloud.git
-```
+- **This repo is public.** Never commit passwords, keys, `.env` files or server
+  notes. Files named `*.local.md` are git-ignored for notes that stay private.
