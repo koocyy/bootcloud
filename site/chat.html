@@ -46,7 +46,7 @@
 
       *, *::before, *::after { box-sizing: border-box; }
       html { background: var(--bg); color: var(--text); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
-      body { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: 100dvh; margin: 0; line-height: 1.5; }
+      body { display: flex; flex-direction: column; height: 100dvh; margin: 0; line-height: 1.5; }
       ::selection { background: var(--hi); color: var(--ink); }
       :focus-visible { outline: 3px solid var(--hi); outline-offset: 2px; }
       [hidden] { display: none !important; }
@@ -124,7 +124,12 @@
       .conn[data-state="idle"]::before { background: var(--muted); }
       .conn[data-state="blocked"]::before { background: var(--bad); }
 
-      .log { display: flex; flex-direction: column; gap: .75rem; overflow-y: auto; overscroll-behavior: contain; padding: 1rem .75rem 1.25rem; scrollbar-color: var(--text) var(--sunken); }
+      /* pinned by an admin: stays above the messages for everyone */
+      .pinned { display: grid; gap: .15rem; padding: .5rem .75rem; border-bottom: var(--bw) solid var(--line); background-color: var(--card); background-image: var(--dots); background-size: 8px 8px; animation: fade-in 200ms steps(4, end); }
+      .pinned .label { color: var(--name-3); }
+      .pinned p { overflow-wrap: anywhere; font-weight: 600; }
+
+      .log { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .75rem; overflow-y: auto; overscroll-behavior: contain; padding: 1rem .75rem 1.25rem; scrollbar-color: var(--text) var(--sunken); }
       .empty { display: grid; gap: .35rem; margin: auto; max-width: 18rem; text-align: center; }
       .empty .pixel { color: var(--hi); font-family: var(--font-pixel); font-size: 1.375rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 
@@ -144,6 +149,8 @@
       .msg-head time { margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-size: .6875rem; }
       .msg-tag { color: var(--muted); font-family: var(--font-mono); font-size: .6875rem; cursor: help; }
       .msg.mine .msg-tag { color: var(--name-3); }
+      /* the server sets "admin" on a message, so a name alone can't fake this badge */
+      .msg-admin { padding: 0 .3rem; border: 2px solid var(--line); background: var(--hi); color: var(--ink); font-family: var(--font-pixel); font-size: .75rem; font-weight: 700; letter-spacing: .06em; line-height: 1.3; }
       .notice {
         align-self: center; max-width: 22rem; padding: .375rem .625rem;
         border: 2px dashed var(--rule); color: var(--muted);
@@ -205,6 +212,11 @@
       <span class="conn label" id="conn" data-state="connecting" role="status">Connecting</span>
     </div>
 
+    <section class="pinned" id="pinned" aria-label="Pinned message" hidden>
+      <span class="label">Pinned by an admin</span>
+      <p id="pinned-text"></p>
+    </section>
+
     <main class="log" id="log" role="log" aria-label="Chat messages">
       <div class="empty" id="empty">
         <p class="pixel">No messages yet</p>
@@ -256,6 +268,17 @@
       const nameError = document.getElementById("name-error");
       const nameCancel = document.getElementById("name-cancel");
       const changeName = document.getElementById("change-name");
+      const pinned = document.getElementById("pinned");
+      const pinnedText = document.getElementById("pinned-text");
+      let lastText = ""; // what we last sent, restored if the server refuses it
+
+      // pause, slow mode and the pinned message, set from the admin panel
+      const applySettings = ({ paused, slow, pinned: pin }) => {
+        pinnedText.textContent = pin || "";
+        pinned.hidden = !pin;
+        messageInput.placeholder = paused ? "The chat is paused by an admin"
+          : slow ? `Slow mode: one message every ${slow} s` : "Type a message";
+      };
       const baseTitle = document.title;
       const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
 
@@ -316,7 +339,7 @@
         bump(count);
       };
 
-      const makeHead = ({ name: author, tag = "", time }) => {
+      const makeHead = ({ name: author, tag = "", time, admin = false }) => {
         const head = document.createElement("header");
         head.className = "msg-head";
         const who = document.createElement("span");
@@ -329,20 +352,50 @@
         const stamp = document.createElement("time");
         stamp.dateTime = time;
         stamp.textContent = clock.format(new Date(time));
-        head.append(who, badge, stamp);
+        head.append(who);
+        if (admin) head.append(Object.assign(document.createElement("span"), { className: "msg-admin", textContent: "ADMIN" }));
+        head.append(badge, stamp);
         return head;
+      };
+
+      const authorKeyOf = (data) => `${data.tag || ""}:${data.name}`;
+
+      // after messages are removed, a follow-up may have lost the message that showed
+      // its name: give it the name header back, and restart grouping from the last one
+      const repairGroups = () => {
+        let previous = null;
+        for (const message of log.querySelectorAll(".msg")) {
+          const key = authorKeyOf(message.chatData);
+          if (message.classList.contains("cont") && previous !== key) {
+            message.classList.remove("cont");
+            message.prepend(makeHead(message.chatData));
+          }
+          previous = key;
+        }
+        const last = [...log.querySelectorAll(".msg")].at(-1);
+        lastAuthor = last ? authorKeyOf(last.chatData) : null;
+        lastTime = last ? new Date(last.chatData.time) : 0;
+        empty.hidden = Boolean(last) || Boolean(log.querySelector(".notice"));
       };
 
       // keep only the newest `historyLimit` messages on screen, same as the server keeps
       const trimOldest = () => {
         const shown = log.querySelectorAll(".msg");
+        if (shown.length <= historyLimit) return;
         for (let i = 0; i < shown.length - historyLimit; i++) shown[i].remove();
-        // if the oldest one left was a follow-up, its name header went with the removed one
-        const first = log.querySelector(".msg");
-        if (first?.classList.contains("cont")) {
-          first.classList.remove("cont");
-          first.prepend(makeHead(first.chatData));
+        repairGroups();
+      };
+
+      // the admin removed one message, or all of them
+      const removeMessage = (id) => {
+        for (const message of log.querySelectorAll(".msg")) {
+          if (message.chatData.id === id) message.remove();
         }
+        repairGroups();
+      };
+      const clearMessages = () => {
+        log.querySelectorAll(".msg").forEach((message) => message.remove());
+        repairGroups();
       };
 
       const addMessage = (data, animate = false) => {
@@ -428,12 +481,18 @@
             if (Number.isInteger(data.limit) && data.limit > 0) historyLimit = data.limit;
             showName();
             showHistory(data.messages);
+            if (data.settings) applySettings(data.settings);
           } else if (data.type === "message") receive(data);
           else if (data.type === "presence") setCount(data.count);
+          else if (data.type === "settings") applySettings(data);
           else if (data.type === "notice") {
             showNotice(data.text);
-            shake(messageInput);
-          }
+            // the server didn't post what we sent: put it back so it isn't lost
+            if (data.refused && !messageInput.value) messageInput.value = lastText;
+            if (data.refused) shake(messageInput);
+          } else if (data.type === "delete") removeMessage(data.id);
+          else if (data.type === "clear") clearMessages();
+          else if (data.type === "admin") finishAdminLogin(data);
         };
         ws.onclose = (event) => {
           socket = null;
@@ -452,6 +511,11 @@
           if (event.code === 4003) {
             setState("blocked");
             showNotice("This browser can't use the chat.");
+            return;
+          }
+          if (event.code === 4005) {
+            setState("blocked");
+            showNotice("An admin removed you from the chat. Reload this window to come back.");
             return;
           }
           if (event.code === 4029) {
@@ -507,11 +571,43 @@
           return;
         }
         lastSent = now;
+        lastText = text;
+        // "/admin pass=..." is a command: the server checks it and never posts it.
+        // The popup has to open now, while this keypress still counts as a user action,
+        // or the browser blocks it; it is pointed at /admin once the password checks out.
+        if (/^\/admin\b/i.test(text)) startAdminLogin();
         socket.send(JSON.stringify({ text }));
         press(sendButton);
         messageInput.value = "";
         messageInput.focus();
       });
+
+      let adminPopup = null;
+      const startAdminLogin = () => {
+        adminPopup = window.open("", "bootcloud-admin", "popup,width=820,height=760");
+        if (adminPopup && adminPopup.location.href === "about:blank") {
+          adminPopup.document.title = "Admin | BootCloud";
+          adminPopup.document.body.style.cssText = "margin:0;display:grid;place-items:center;height:100vh;background:#060b26;color:#8fa3d6;font:700 14px monospace";
+          adminPopup.document.body.textContent = "CHECKING PASSWORD...";
+        }
+      };
+      const finishAdminLogin = ({ ok, text }) => {
+        const popup = adminPopup;
+        adminPopup = null;
+        if (ok) {
+          if (popup && !popup.closed) {
+            popup.location.href = "admin";
+            popup.focus();
+          } else {
+            showNotice("Admin access granted. Popups are blocked here, so open /admin in a new tab.");
+          }
+          return;
+        }
+        // only close the window if it is still the blank "checking" one we opened
+        if (popup && !popup.closed && popup.location.href === "about:blank") popup.close();
+        showNotice(text || "Admin login failed.");
+        shake(messageInput);
+      };
 
       window.addEventListener("focus", () => { unread = 0; updateTitle(); });
 

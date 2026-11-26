@@ -3,7 +3,9 @@ import base64
 import hashlib
 import hmac
 import ipaddress
+import itertools
 import json
+import re
 import mimetypes
 import os
 import secrets
@@ -37,11 +39,15 @@ CHAT_MAX_FRAME = 2000  # raw frames longer than this are ignored without parsing
 CHAT_NAME_LENGTH = (2, 16)
 MAX_STACKED_MARKS = 3  # combining accents allowed on one letter (stops "zalgo" text)
 SEND_TIMEOUT = 5  # seconds a client gets to accept a message before it is skipped
+ADMIN_SESSION = 12 * 3600  # seconds a browser stays admin after "/admin pass=..." in the chat
+ADMIN_TRIES_PER_BROWSER = (5, 900)  # password attempts per browser per 15 minutes
+ADMIN_TRIES_PER_IP = (20, 900)  # and per IP (a whole school) per 15 minutes
 
 # websocket close codes the pages understand
 CLOSE_BAD_NAME = 4000
 CLOSE_NO_SESSION = 4001
 CLOSE_BANNED = 4003
+CLOSE_KICKED = 4005
 CLOSE_TOO_MANY = 4029
 CLOSE_POLICY = 1008
 
@@ -53,6 +59,10 @@ CLOSE_POLICY = 1008
 STATE_DIR = Path(os.environ.get("STATE_DIRECTORY", ".state").split(":")[0])
 SESSION_KEY_FILE = STATE_DIR / "session.key"
 CHAT_BANS_FILE = STATE_DIR / "chat-bans.txt"
+# scrypt hash of the admin password, written by `python main.py set-admin-password`.
+# Without it the admin panel stays off. The password itself is never stored.
+ADMIN_PASSWORD_FILE = STATE_DIR / "admin-password"
+BLOCKED_WORDS_FILE = STATE_DIR / "blocked-words.txt"  # edited from the admin panel
 
 
 def load_session_secret() -> bytes:
@@ -205,6 +215,7 @@ class Hub:
     browsers: Counter = field(default_factory=Counter)
     ips: Counter = field(default_factory=Counter)
     stalled: set[WebSocket] = field(default_factory=set)
+    peak: int = 0  # most people at once since the server started (admin stats)
 
     @property
     def people(self) -> int:
@@ -222,6 +233,7 @@ class Hub:
         self.clients[websocket] = (browser_id, ip)
         self.browsers[browser_id] += 1
         self.ips[ip] += 1
+        self.peak = max(self.peak, self.people)
         return self.browsers[browser_id] == 1
 
     def remove(self, websocket: WebSocket) -> bool:
@@ -325,23 +337,106 @@ async def online_counter(websocket: WebSocket):
 # (shown as #a1b2c3) tells apart two people using the same name.
 chat_hub = Hub(**CHAT_LIMITS)
 chat_history: deque[dict] = deque(maxlen=CHAT_HISTORY)
+chat_message_ids = itertools.count(1)  # lets the admin panel delete one message
+chat_names: dict[WebSocket, str] = {}  # name each chat window joined with
 chat_last_message: dict[str, float] = {}  # browser ID -> when it last sent
 chat_ip_messages = RateWindow(*CHAT_MESSAGES_PER_IP)
-_bans_cache: tuple[float | None, frozenset[str]] = (None, frozenset())
+TAG_PATTERN = re.compile(r"[0-9a-f]{6}")
+_bans_cache: tuple[float | None, dict[str, str]] = (None, {})
 
 
-def banned_tags() -> frozenset[str]:
-    """Tags listed in chat-bans.txt, one per line (# starts a comment). Re-read when the file changes."""
+def read_bans() -> dict[str, str]:
+    """chat-bans.txt as {tag: note}: one tag per line, anything after # is the note.
+    Re-read when the file changes, so edits by hand apply without a restart."""
     global _bans_cache
     try:
         modified = CHAT_BANS_FILE.stat().st_mtime
     except FileNotFoundError:
-        return frozenset()
+        return {}
     if _bans_cache[0] != modified:
-        lines = CHAT_BANS_FILE.read_text(encoding="utf-8").splitlines()
-        tags = (line.split("#")[0].strip().lower() for line in lines)
-        _bans_cache = (modified, frozenset(tag for tag in tags if tag))
+        bans = {}
+        for line in CHAT_BANS_FILE.read_text(encoding="utf-8").splitlines():
+            tag, _, note = line.partition("#")
+            if tag.strip():
+                bans[tag.strip().lower()] = note.strip()
+        _bans_cache = (modified, bans)
     return _bans_cache[1]
+
+
+def banned_tags() -> frozenset[str]:
+    return frozenset(read_bans())
+
+
+def write_bans(bans: dict[str, str]) -> None:
+    global _bans_cache
+    lines = [f"{tag}  # {note}" if note else tag for tag, note in bans.items()]
+    CHAT_BANS_FILE.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+    _bans_cache = (None, {})  # file times can be coarse: force a re-read
+
+
+# moderation set from the admin panel; only the blocked words survive a restart
+SLOW_MODE_CHOICES = (0, 5, 10, 30, 60)  # seconds between messages per browser; 0 = normal
+MUTE_CHOICES = (5, 15, 60, 1440)  # minutes
+chat_settings = {"paused": False, "slow": 0, "pinned": ""}
+chat_mutes: dict[str, float] = {}  # tag -> when the mute ends (time.time())
+chat_stats = {"started": time.time(), "messages": 0}
+_words_cache: tuple[float | None, list[str], re.Pattern | None] = (None, [], None)
+
+
+def blocked_words() -> tuple[list[str], re.Pattern | None]:
+    """blocked-words.txt: one word or phrase per line. Matched as whole words,
+    ignoring case, so blocking "ass" doesn't also block "class"."""
+    global _words_cache
+    try:
+        modified = BLOCKED_WORDS_FILE.stat().st_mtime
+    except FileNotFoundError:
+        return [], None
+    if _words_cache[0] != modified:
+        words = [w.strip().casefold() for w in BLOCKED_WORDS_FILE.read_text(encoding="utf-8").splitlines() if w.strip()]
+        pattern = re.compile(r"(?<!\w)(?:" + "|".join(map(re.escape, words)) + r")(?!\w)") if words else None
+        _words_cache = (modified, words, pattern)
+    return _words_cache[1], _words_cache[2]
+
+
+def write_blocked_words(words: list[str]) -> None:
+    global _words_cache
+    BLOCKED_WORDS_FILE.write_text("".join(w + "\n" for w in words), encoding="utf-8")
+    _words_cache = (None, [], None)
+
+
+def mute_left(tag: str) -> int:
+    """Minutes of mute left for a browser tag, 0 when not muted."""
+    until = chat_mutes.get(tag)
+    if until is None:
+        return 0
+    if until <= time.time():
+        del chat_mutes[tag]
+        return 0
+    return max(1, round((until - time.time()) / 60))
+
+
+def public_settings() -> dict:
+    return {"type": "settings", **chat_settings}
+
+
+def chat_refusal(browser_id: str, tag: str, ip: str, text: str, admin: bool) -> str | None:
+    """Why this message can't be posted right now, or None to post it. Admins skip
+    pause, slow mode and the word filter, but not the server-wide IP limit."""
+    if chat_settings["paused"] and not admin:
+        return "The chat is paused by an admin. That message wasn't sent."
+    if minutes := mute_left(tag):
+        return f"You're muted for {minutes} more minute{'s' if minutes != 1 else ''}. That message wasn't sent."
+    _, pattern = blocked_words()
+    if pattern and not admin and pattern.search(text.casefold()):
+        return "That message has a word that isn't allowed here. It wasn't sent."
+    interval = CHAT_MIN_INTERVAL if admin else max(CHAT_MIN_INTERVAL, chat_settings["slow"])
+    if time.monotonic() - chat_last_message.get(browser_id, 0) < interval:
+        if interval > CHAT_MIN_INTERVAL:
+            return f"Slow mode is on: one message every {interval:g} seconds. That message wasn't sent."
+        return "Slow down a little. That message wasn't sent."
+    if not chat_ip_messages.allow(ip):
+        return "Slow down a little. That message wasn't sent."
+    return None
 
 
 def clean_text(value: object, max_length: int) -> str:
@@ -367,8 +462,9 @@ def chat_presence(people: int) -> str:
     return json.dumps({"type": "presence", "count": people})
 
 
-def chat_notice(text: str) -> str:
-    return json.dumps({"type": "notice", "text": text})
+def chat_notice(text: str, refused: bool = False) -> str:
+    # refused: the notice answers a message that wasn't posted, so the page puts it back in the box
+    return json.dumps({"type": "notice", "text": text, "refused": refused})
 
 
 @app.websocket("/ws/chat")
@@ -393,9 +489,11 @@ async def chat(websocket: WebSocket):
                 "you": tag,
                 "limit": CHAT_HISTORY,  # the page shows at most this many, also for live messages
                 "messages": list(chat_history),
+                "settings": public_settings(),  # paused, slow mode, pinned message
             })), timeout=SEND_TIMEOUT)
         except Exception:
             return  # gone or not reading; the finally below frees its slot
+        chat_names[websocket] = name
         await announce(chat_hub, websocket, first, chat_presence)
         while (raw := await receive_text(websocket)) is not None:
             if len(raw) > CHAT_MAX_FRAME:
@@ -409,24 +507,270 @@ async def chat(websocket: WebSocket):
             if tag in banned_tags():
                 await websocket.close(code=CLOSE_BANNED)
                 break
-            now = time.monotonic()
-            if now - chat_last_message.get(browser_id, 0) < CHAT_MIN_INTERVAL or not chat_ip_messages.allow(ip):
-                await send_safely(chat_hub, websocket, chat_notice("Slow down a little. That message wasn't sent."))
+            if ADMIN_COMMAND.match(text):
+                # a command, never a chat message: the password must not reach anyone
+                await send_safely(chat_hub, websocket, json.dumps(await admin_login(browser_id, ip, text)))
                 continue
-            chat_last_message[browser_id] = now
+            admin = is_admin(browser_id)
+            if refusal := chat_refusal(browser_id, tag, ip, text, admin):
+                await send_safely(chat_hub, websocket, chat_notice(refusal, refused=True))
+                continue
+            chat_last_message[browser_id] = time.monotonic()
             message = {
                 "type": "message",
+                "id": next(chat_message_ids),
                 "name": name,
                 "tag": tag,
+                "admin": admin,  # set by the server, so a name can't fake the badge
                 "text": text,
                 "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             }
             chat_history.append(message)
+            chat_stats["messages"] += 1
             await broadcast(chat_hub, json.dumps(message))
     finally:
+        chat_names.pop(websocket, None)
         await leave(chat_hub, websocket, chat_presence)
         if browser_id not in chat_hub.browsers:
             chat_last_message.pop(browser_id, None)
+
+
+# ---------- admin ----------
+# Typing "/admin pass=..." in the chat makes that browser admin for ADMIN_SESSION
+# seconds; the chat page then opens /admin, which talks to /ws/admin.
+ADMIN_COMMAND = re.compile(r"/admin\b", re.IGNORECASE)
+ADMIN_PASSWORD_ARG = re.compile(r"\bpass(?:word)?=(\S+)", re.IGNORECASE)
+SCRYPT = {"n": 2**14, "r": 8, "p": 1}
+
+admin_sessions: dict[str, float] = {}  # browser ID -> when its admin rights run out
+admin_tries_browser = RateWindow(*ADMIN_TRIES_PER_BROWSER)
+admin_tries_ip = RateWindow(*ADMIN_TRIES_PER_IP)
+
+
+def hash_admin_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt, **SCRYPT)
+    return f"scrypt${salt.hex()}${digest.hex()}"
+
+
+def check_admin_password(password: str) -> bool | None:
+    """True or False, or None when no admin password is set on this server."""
+    try:
+        _, salt, expected = ADMIN_PASSWORD_FILE.read_text(encoding="utf-8").strip().split("$")
+    except (FileNotFoundError, ValueError):
+        return None
+    digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), **SCRYPT)
+    return hmac.compare_digest(digest.hex(), expected)
+
+
+def is_admin(browser_id: str) -> bool:
+    expires = admin_sessions.get(browser_id)
+    if expires is not None and expires > time.monotonic():
+        return True
+    admin_sessions.pop(browser_id, None)
+    return False
+
+
+async def admin_login(browser_id: str, ip: str, command: str) -> dict:
+    """Handles "/admin pass=..." from the chat. Returns the reply for that window only."""
+    if not (admin_tries_browser.allow(browser_id) and admin_tries_ip.allow(ip)):
+        return {"type": "admin", "ok": False, "text": "Too many tries. Wait 15 minutes."}
+    password = ADMIN_PASSWORD_ARG.search(command)
+    # scrypt is slow on purpose (~50 ms); run it off the event loop so chat doesn't stall
+    result = await asyncio.to_thread(check_admin_password, password.group(1)) if password else False
+    if result is None:
+        return {"type": "admin", "ok": False, "text": "The admin panel isn't set up on this server."}
+    if not result:
+        return {"type": "admin", "ok": False, "text": "Wrong admin password."}
+    admin_sessions[browser_id] = time.monotonic() + ADMIN_SESSION
+    return {"type": "admin", "ok": True}
+
+
+ADMIN_MAX_FRAME = 4000  # admin messages can carry the blocked-words list
+BLOCKED_WORDS_LIMIT = (100, 30)  # at most 100 words, each up to 30 characters
+admin_sockets: set[WebSocket] = set()  # open admin panels, for "log out all admins"
+
+
+def admin_state() -> dict:
+    chatters: dict[str, dict] = {}
+    for websocket, (browser_id, _) in chat_hub.clients.items():
+        person = chatters.setdefault(public_tag(browser_id), {"names": set(), "windows": 0, "bid": browser_id})
+        person["windows"] += 1
+        if websocket in chat_names:
+            person["names"].add(chat_names[websocket])
+    words, _ = blocked_words()
+    return {
+        "type": "state",
+        "online": {"people": online_hub.people, "tabs": len(online_hub.clients), "peak": online_hub.peak},
+        "chat": {"people": chat_hub.people, "windows": len(chat_hub.clients), "limit": CHAT_HISTORY, "peak": chat_hub.peak},
+        "stats": {
+            "uptime": int(time.time() - chat_stats["started"]),
+            "messages": chat_stats["messages"],
+            "admins": sum(1 for bid in list(admin_sessions) if is_admin(bid)),
+        },
+        "settings": dict(chat_settings),
+        "slow_choices": SLOW_MODE_CHOICES,
+        "mute_choices": MUTE_CHOICES,
+        "chatters": [
+            {
+                "tag": tag,
+                "names": sorted(p["names"]),
+                "windows": p["windows"],
+                "muted": mute_left(tag),
+                "admin": is_admin(p["bid"]),
+            }
+            for tag, p in sorted(chatters.items())
+        ],
+        "messages": list(chat_history),
+        "mutes": [{"tag": tag, "minutes": m} for tag in list(chat_mutes) if (m := mute_left(tag))],
+        "bans": [{"tag": tag, "note": note} for tag, note in read_bans().items()],
+        "words": words,
+    }
+
+
+async def close_quietly(websocket: WebSocket, code: int) -> None:
+    try:
+        await asyncio.wait_for(websocket.close(code=code), timeout=SEND_TIMEOUT)
+    except Exception:
+        pass
+
+
+def chat_windows_of(tag: str) -> list[WebSocket]:
+    return [ws for ws, (bid, _) in chat_hub.clients.items() if public_tag(bid) == tag]
+
+
+async def tell_everyone_settings(notice: str | None = None) -> None:
+    await broadcast(chat_hub, json.dumps(public_settings()))
+    if notice:
+        await broadcast(chat_hub, chat_notice(notice))
+
+
+async def admin_action(data: dict) -> str | None:
+    """Runs one action from the admin panel. Returns an error to show, or None."""
+    action = data.get("action")
+    tag = str(data.get("tag", "")).strip().lower().lstrip("#")
+    if action in {"ban", "mute", "unmute", "kick"} and not TAG_PATTERN.fullmatch(tag):
+        return "A tag is 6 characters, like a1b2c3."
+
+    if action == "delete":
+        before = len(chat_history)
+        kept = [m for m in chat_history if m.get("id") != data.get("id")]
+        if len(kept) == before:
+            return "That message is already gone."
+        chat_history.clear()
+        chat_history.extend(kept)
+        await broadcast(chat_hub, json.dumps({"type": "delete", "id": data.get("id")}))
+    elif action == "clear":
+        chat_history.clear()
+        await broadcast(chat_hub, json.dumps({"type": "clear"}))
+    elif action == "announce":
+        text = clean_text(data.get("text"), CHAT_MAX_LENGTH)
+        if not text:
+            return "Write something to announce."
+        await broadcast(chat_hub, chat_notice(f"Admin: {text}"))
+    elif action == "ban":
+        bans = dict(read_bans())
+        # "#" starts the note in chat-bans.txt, so it can't appear inside one
+        bans[tag] = clean_text(str(data.get("note") or "").replace("#", " "), 100)
+        write_bans(bans)
+        # close that browser's chat windows now; banned browsers can't rejoin
+        await asyncio.gather(*(close_quietly(ws, CLOSE_BANNED) for ws in chat_windows_of(tag)))
+    elif action == "unban":
+        bans = dict(read_bans())
+        if bans.pop(tag, None) is None:
+            return "That tag isn't banned."
+        write_bans(bans)
+    elif action == "kick":
+        windows = chat_windows_of(tag)
+        if not windows:
+            return "That browser isn't in the chat."
+        # unlike a ban, they can come back by reloading the chat window
+        await asyncio.gather(*(close_quietly(ws, CLOSE_KICKED) for ws in windows))
+    elif action == "mute":
+        minutes = data.get("minutes")
+        if minutes not in MUTE_CHOICES:
+            return "Pick how long to mute for."
+        chat_mutes[tag] = time.time() + minutes * 60
+        length = f"{minutes // 60} hour{'s' if minutes >= 120 else ''}" if minutes >= 60 else f"{minutes} minutes"
+        for ws in chat_windows_of(tag):
+            await send_safely(chat_hub, ws, chat_notice(f"An admin muted you for {length}. You can still read the chat."))
+    elif action == "unmute":
+        if chat_mutes.pop(tag, None) is None:
+            return "That browser isn't muted."
+        for ws in chat_windows_of(tag):
+            await send_safely(chat_hub, ws, chat_notice("You can write in the chat again."))
+    elif action == "pause":
+        paused = bool(data.get("paused"))
+        if paused != chat_settings["paused"]:
+            chat_settings["paused"] = paused
+            await tell_everyone_settings("An admin paused the chat." if paused else "The chat is open again.")
+    elif action == "slow":
+        seconds = data.get("seconds")
+        if seconds not in SLOW_MODE_CHOICES:
+            return "Pick one of the slow mode options."
+        if seconds != chat_settings["slow"]:
+            chat_settings["slow"] = seconds
+            await tell_everyone_settings(
+                f"Slow mode is on: one message every {seconds} seconds." if seconds else "Slow mode is off.")
+    elif action == "pin":
+        chat_settings["pinned"] = clean_text(data.get("text"), 200)
+        await tell_everyone_settings()
+    elif action == "words":
+        raw_words = data.get("words")
+        if not isinstance(raw_words, list):
+            return "Send the words as a list."
+        cleaned = (clean_text(x, BLOCKED_WORDS_LIMIT[1]).casefold() for x in raw_words)
+        words = list(dict.fromkeys(w for w in cleaned if w))  # drop repeats, keep order
+        if len(words) > BLOCKED_WORDS_LIMIT[0]:
+            return f"At most {BLOCKED_WORDS_LIMIT[0]} blocked words."
+        write_blocked_words(words)
+    elif action == "logout_all":
+        admin_sessions.clear()
+        await asyncio.gather(*(close_quietly(ws, CLOSE_BANNED) for ws in list(admin_sockets)))
+    elif action != "state":
+        return "Unknown action."
+    return None
+
+
+@app.websocket("/ws/admin")
+async def admin(websocket: WebSocket):
+    if not same_origin(websocket):
+        await websocket.close(code=CLOSE_POLICY)
+        return
+    await websocket.accept()
+    browser_id = read_session(websocket.cookies.get(SESSION_COOKIE))
+    if browser_id is None or not is_admin(browser_id):
+        await websocket.close(code=CLOSE_BANNED)  # 4003: not allowed
+        return
+    admin_sockets.add(websocket)
+    try:
+        while (raw := await receive_text(websocket)) is not None:
+            # re-checked on every action: logging out or running out of time applies at once
+            if not is_admin(browser_id):
+                await close_quietly(websocket, CLOSE_BANNED)
+                return
+            try:
+                data = json.loads(raw) if len(raw) <= ADMIN_MAX_FRAME else {}
+            except ValueError:
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+            if data.get("action") == "logout":
+                admin_sessions.pop(browser_id, None)
+                await close_quietly(websocket, CLOSE_BANNED)
+                return
+            error = await admin_action(data)
+            if not is_admin(browser_id):  # "log out all admins" includes this one
+                return
+            reply = admin_state()
+            if error:
+                reply["error"] = error
+            try:
+                await asyncio.wait_for(websocket.send_text(json.dumps(reply)), timeout=SEND_TIMEOUT)
+            except Exception:
+                return
+    finally:
+        admin_sockets.discard(websocket)
 
 
 # ---------- pages ----------
@@ -438,6 +782,33 @@ async def serve_chat():
     return FileResponse("chat.html")
 
 
+@app.get("/admin")
+async def serve_admin():
+    # the page holds no data; everything comes over /ws/admin, which checks admin rights
+    return FileResponse("admin.html")
+
+
 @app.get("/")
 async def serve_main():
     return FileResponse("index.html")
+
+
+if __name__ == "__main__":
+    # Sets the admin password. Run it from site/ as the user the app runs as, e.g.
+    #   sudo -u www-data env STATE_DIRECTORY=/var/lib/bootcloud \
+    #       /srv/bootcloud-venv/bin/python main.py set-admin-password
+    import getpass
+    import sys
+
+    if sys.argv[1:] != ["set-admin-password"]:
+        sys.exit("usage: python main.py set-admin-password")
+    new_password = unicodedata.normalize("NFC", getpass.getpass("New admin password: "))
+    if not new_password or any(ch.isspace() for ch in new_password):
+        sys.exit("Use a password without spaces. Nothing changed.")
+    if new_password != unicodedata.normalize("NFC", getpass.getpass("Repeat it: ")):
+        sys.exit("The two didn't match. Nothing changed.")
+    if len(new_password) < 12:
+        print("Note: short passwords are easy to guess. 12+ characters is safer.")
+    ADMIN_PASSWORD_FILE.write_text(hash_admin_password(new_password) + "\n", encoding="utf-8")
+    os.chmod(ADMIN_PASSWORD_FILE, 0o600)
+    print(f"Saved to {ADMIN_PASSWORD_FILE}. In the chat, type: /admin pass=<your password>")

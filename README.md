@@ -10,6 +10,7 @@ site/                          the app
   main.py                      FastAPI app (uvicorn runs main:app)
   index.html                   page served at /
   chat.html                    chat window served at /chat (opens as a popup)
+  admin.html                   admin panel served at /admin (opens from the chat)
   assets/online.js             "N online" counter in the tab title, on every page
   assets/chat-popup.js         opens links marked data-chat-popup in the chat popup
   games/                       self-hosted games, served at /games/
@@ -42,7 +43,7 @@ Locally the session key is created in `site/.state/`, which git ignores.
 | App service | `bootcloud.service`, uvicorn on port 443 with the TLS certificate |
 | Redirect service | `bootcloud-redirect.service`, port 80, sends everything to `https://bootcloud.eu` |
 | Certificate | Let's Encrypt, in `/etc/letsencrypt/live/bootcloud.eu/` |
-| Session key and chat bans | `/var/lib/bootcloud/` (created by systemd, owned by `www-data`) |
+| Session key, admin password hash, bans, blocked words | `/var/lib/bootcloud/` (created by systemd, owned by `www-data`) |
 
 Both services run as the unprivileged `www-data` user, start on boot and
 restart themselves if they crash.
@@ -93,6 +94,38 @@ starts a comment). It applies at once, no restart needed:
 ```bash
 echo 'a1b2c3  # spam, 2026-11-26' | sudo -u www-data tee -a /var/lib/bootcloud/chat-bans.txt
 ```
+
+**Admin panel:** type `/admin pass=<password>` in the chat. The command is never
+posted; with the right password that browser is admin for 12 hours (or until it
+logs out or the server restarts) and the admin panel opens in a popup (red, so
+it can't be mistaken for the blue chat). Wrong guesses are limited to 5 per
+browser and 20 per IP every 15 minutes. What it can do:
+
+- **See:** people online and in the chat (now and peak), messages sent, uptime,
+  who is admin; search the kept messages.
+- **Messages:** delete one, clear all, send an announcement, pin a message to the
+  top of everyone's chat.
+- **People:** mute (5 min to 24 h: can read, can't write), kick (can come back
+  by reloading), ban and unban, all by browser tag.
+- **Whole chat:** pause it, slow mode (one message per 5–60 s per browser), and
+  blocked words (whole words, any case). Admins are exempt from all three, and
+  their messages carry an ADMIN badge that a name can't fake.
+- **Admins:** log out, or log out every admin at once.
+
+Bans and blocked words are files in `/var/lib/bootcloud/` (`chat-bans.txt`,
+`blocked-words.txt`) and survive restarts; mutes, pause, slow mode and the pin
+are in memory and reset on restart.
+
+The password is not in this repo (it is public). Set it on the server, from
+`site/`; only a scrypt hash is stored, in `/var/lib/bootcloud/admin-password`:
+
+```bash
+cd /srv/bootcloud/site
+sudo -u www-data env STATE_DIRECTORY=/var/lib/bootcloud \
+    /srv/bootcloud-venv/bin/python main.py set-admin-password
+```
+
+Run it again to change the password; delete that file to turn the panel off.
 
 **Limits** are at the top of `main.py` (tabs and chat windows per browser,
 per-IP backstops, message rate, history length). Two more are uvicorn flags and
