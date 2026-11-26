@@ -2,13 +2,14 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import mimetypes
 import os
 import secrets
 import time
 import unicodedata
-from collections import Counter, deque
+from collections import Counter, OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,24 +83,39 @@ app.mount("/games", StaticFiles(directory="games", html=True), name="games")
 
 
 def client_ip(connection: HTTPConnection) -> str:
-    # uvicorn faces the internet directly (no proxy), so this is the real address
-    return connection.client.host if connection.client else "unknown"
+    """The key per-IP limits use. uvicorn faces the internet directly (no proxy), so
+    the address is real. IPv6 is grouped by /64, because one machine or network
+    usually holds a whole /64 and could otherwise rotate through endless addresses."""
+    host = connection.client.host if connection.client else "unknown"
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if address.version == 6 and address.ipv4_mapped is None:
+        return str(ipaddress.ip_network(f"{address}/64", strict=False))
+    return str(getattr(address, "ipv4_mapped", None) or address)
 
 
 class RateWindow:
-    """Allows at most `limit` hits per key within any `window` seconds."""
+    """Allows at most `limit` hits per key within any `window` seconds.
+    Tracks at most `max_keys` keys; past that it forgets the least recently seen one,
+    so every call stays O(1) however many addresses show up."""
 
     def __init__(self, limit: int, window: float, max_keys: int = 10_000):
         self.limit = limit
         self.window = window
         self.max_keys = max_keys
-        self.hits: dict[str, deque[float]] = {}
+        self.hits: OrderedDict[str, deque[float]] = OrderedDict()
 
     def allow(self, key: str) -> bool:
         now = time.monotonic()
-        if len(self.hits) > self.max_keys:
-            self.hits = {k: q for k, q in self.hits.items() if q and q[-1] > now - self.window}
-        recent = self.hits.setdefault(key, deque())
+        recent = self.hits.get(key)
+        if recent is None:
+            recent = self.hits[key] = deque()
+            if len(self.hits) > self.max_keys:
+                self.hits.popitem(last=False)
+        else:
+            self.hits.move_to_end(key)
         while recent and recent[0] <= now - self.window:
             recent.popleft()
         if len(recent) >= self.limit:
@@ -238,8 +254,10 @@ def same_origin(websocket: WebSocket) -> bool:
     return bool(origin and host) and urlsplit(origin).netloc.lower() == host.lower()
 
 
-async def admit(websocket: WebSocket, hub: Hub) -> tuple[str, str] | None:
-    """Accepts the connection if it may join the hub. Returns (browser ID, IP) or None."""
+async def admit(websocket: WebSocket, hub: Hub) -> tuple[str, str, bool] | None:
+    """Accepts the connection and counts it in the hub if the caps allow it.
+    Returns (browser ID, IP, is the browser's first connection) or None.
+    The caller must hub.remove() or leave() the connection once it is admitted."""
     if not same_origin(websocket):
         await websocket.close(code=CLOSE_POLICY)  # before accept: the handshake is refused
         return None
@@ -252,11 +270,14 @@ async def admit(websocket: WebSocket, hub: Hub) -> tuple[str, str] | None:
     if hub.is_full_for(browser_id, ip):
         await websocket.close(code=CLOSE_TOO_MANY)
         return None
-    return browser_id, ip
+    # count it in the same step as the check, with no await in between, so many
+    # connections opened at once can't all pass the check before any is counted
+    first = hub.add(websocket, browser_id, ip)
+    return browser_id, ip, first
 
 
-async def join(hub: Hub, websocket: WebSocket, browser_id: str, ip: str, presence: Callable[[int], str]) -> None:
-    if hub.add(websocket, browser_id, ip):
+async def announce(hub: Hub, websocket: WebSocket, first: bool, presence: Callable[[int], str]) -> None:
+    if first:
         await broadcast(hub, presence(hub.people))
     else:
         # another tab of the same browser: the count is unchanged, just tell this one
@@ -290,8 +311,8 @@ async def online_counter(websocket: WebSocket):
     admitted = await admit(websocket, online_hub)
     if admitted is None:
         return
-    await join(online_hub, websocket, *admitted, online_presence)
     try:
+        await announce(online_hub, websocket, admitted[2], online_presence)
         # the page never sends anything, so any message means a misbehaving client
         if await receive_text(websocket) is not None:
             await websocket.close(code=CLOSE_POLICY)
@@ -355,24 +376,27 @@ async def chat(websocket: WebSocket):
     admitted = await admit(websocket, chat_hub)
     if admitted is None:
         return
-    browser_id, ip = admitted
+    browser_id, ip, first = admitted
     tag = public_tag(browser_id)
-    if tag in banned_tags():
-        await websocket.close(code=CLOSE_BANNED)
-        return
     name = clean_text(websocket.query_params.get("name"), CHAT_NAME_LENGTH[1])
-    if len(name) < CHAT_NAME_LENGTH[0]:
-        await websocket.close(code=CLOSE_BAD_NAME)
+    refusal = CLOSE_BANNED if tag in banned_tags() else CLOSE_BAD_NAME if len(name) < CHAT_NAME_LENGTH[0] else None
+    if refusal is not None:
+        chat_hub.remove(websocket)  # never announced, so no presence update either
+        await websocket.close(code=refusal)
         return
 
-    await websocket.send_text(json.dumps({
-        "type": "history",
-        "you": tag,
-        "limit": CHAT_HISTORY,  # the page shows at most this many, also for live messages
-        "messages": list(chat_history),
-    }))
-    await join(chat_hub, websocket, browser_id, ip, chat_presence)
     try:
+        # same timeout as every other send: a client that doesn't read can't hang here
+        try:
+            await asyncio.wait_for(websocket.send_text(json.dumps({
+                "type": "history",
+                "you": tag,
+                "limit": CHAT_HISTORY,  # the page shows at most this many, also for live messages
+                "messages": list(chat_history),
+            })), timeout=SEND_TIMEOUT)
+        except Exception:
+            return  # gone or not reading; the finally below frees its slot
+        await announce(chat_hub, websocket, first, chat_presence)
         while (raw := await receive_text(websocket)) is not None:
             if len(raw) > CHAT_MAX_FRAME:
                 continue
