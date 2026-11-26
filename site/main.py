@@ -511,6 +511,15 @@ async def chat(websocket: WebSocket):
                 # a command, never a chat message: the password must not reach anyone
                 await send_safely(chat_hub, websocket, json.dumps(await admin_login(browser_id, ip, text)))
                 continue
+            if text.startswith("/"):
+                # a mistyped command (like "/admn pass=...") must not get posted either
+                await send_safely(chat_hub, websocket, chat_notice(
+                    "Unknown command. Messages starting with / aren't posted.", refused=True))
+                continue
+            if PASSWORD_LIKE.search(text):
+                await send_safely(chat_hub, websocket, chat_notice(
+                    "Messages with pass= aren't posted, so a password can't leak by accident.", refused=True))
+                continue
             admin = is_admin(browser_id)
             if refusal := chat_refusal(browser_id, tag, ip, text, admin):
                 await send_safely(chat_hub, websocket, chat_notice(refusal, refused=True))
@@ -538,8 +547,13 @@ async def chat(websocket: WebSocket):
 # ---------- admin ----------
 # Typing "/admin pass=..." in the chat makes that browser admin for ADMIN_SESSION
 # seconds; the chat page then opens /admin, which talks to /ws/admin.
-ADMIN_COMMAND = re.compile(r"/admin\b", re.IGNORECASE)
-ADMIN_PASSWORD_ARG = re.compile(r"\bpass(?:word)?=(\S+)", re.IGNORECASE)
+# Anything starting with "/admin" is the command. No word-boundary rule: \b means
+# different things in Python and in the page's JavaScript (é is a letter to one and
+# not the other), and the two must agree, or a command could get posted as a message.
+ADMIN_COMMAND = re.compile(r"/admin", re.IGNORECASE)
+ADMIN_PASSWORD_ARG = re.compile(r"pass(?:word)?=(\S+)", re.IGNORECASE)
+# last guard against a mistyped command: never post anything that looks like it has a password
+PASSWORD_LIKE = re.compile(r"pass(?:word)?\s*=", re.IGNORECASE)
 SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 
 admin_sessions: dict[str, float] = {}  # browser ID -> when its admin rights run out

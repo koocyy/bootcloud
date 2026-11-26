@@ -575,7 +575,8 @@
         // "/admin pass=..." is a command: the server checks it and never posts it.
         // The popup has to open now, while this keypress still counts as a user action,
         // or the browser blocks it; it is pointed at /admin once the password checks out.
-        if (/^\/admin\b/i.test(text)) startAdminLogin();
+        // same rule as ADMIN_COMMAND in main.py: starts with "/admin", nothing more
+        if (/^\/admin/i.test(text)) startAdminLogin();
         socket.send(JSON.stringify({ text }));
         press(sendButton);
         messageInput.value = "";
